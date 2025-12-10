@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22">
+  <!-- Labertaschi Logo: L-Mikrofon für macOS Menüleiste (Template Image) -->
+  <!-- Das L formt gleichzeitig ein Mikrofon: oberer Teil = Mic-Kopf, Schaft + Fuß = L -->
+  
+  <!-- Mikrofon-Kopf (oberer Teil des L, abgerundet) -->
+  <rect x="5" y="2" width="6" height="10" rx="3" fill="black"/>
+  
+  <!-- Mikrofon-Ständer/L-Schaft (vertikale Linie nach unten) -->
+  <rect x="6.5" y="12" width="3" height="5" fill="black"/>
+  
+  <!-- L-Fuß / Mikrofon-Basis (horizontale Linie) -->
+  <rect x="6.5" y="16" width="10" height="3" rx="1.5" fill="black"/>
+  
+  <!-- Soundwellen-Akzent (optional, dezent) -->
+  <path d="M14 5.5 Q16 7 14 8.5" stroke="black" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  <path d="M16 4 Q19 7 16 10" stroke="black" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+</svg>

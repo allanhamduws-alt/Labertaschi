@@ -1,0 +1,66 @@
+{
+  "name": "labertaschi-menubar",
+  "version": "1.0.0",
+  "description": "Menüleisten-App für Sprachtranskription mit Groq Whisper und optional Claude Haiku Polishing",
+  "main": "electron-main.js",
+  "scripts": {
+    "dev": "electron .",
+    "build": "electron-builder --mac --arm64",
+    "build:universal": "electron-builder --mac --universal",
+    "start": "electron .",
+    "lint": "echo \"no lint configured\""
+  },
+  "keywords": [
+    "transcription",
+    "whisper",
+    "groq",
+    "menubar",
+    "macos"
+  ],
+  "author": "Labertaschi",
+  "license": "MIT",
+  "dependencies": {
+    "auto-launch": "^5.0.6",
+    "electron-store": "^8.2.0",
+    "form-data": "^4.0.0",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^24.13.3",
+    "sharp": "^0.34.5"
+  },
+  "build": {
+    "appId": "com.labertaschi.menubar",
+    "productName": "Labertaschi",
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "icon.icns",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "files": [
+      "electron-main.js",
+      "preload.js",
+      "settings.html",
+      "history.html",
+      "recording.html",
+      "icon.png",
+      "iconTemplate.png",
+      "iconTemplate@2x.png"
+    ],
+    "extraResources": []
+  }
+}

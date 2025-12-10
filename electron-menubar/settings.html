@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Labertaschi Einstellungen</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a1a;
+      color: #e0e0e0;
+      padding: 24px;
+      line-height: 1.5;
+    }
+
+    h1 {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 20px;
+      color: #fff;
+    }
+
+    .section {
+      background: #242424;
+      border: 1px solid #333;
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+
+    .section-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #888;
+      margin-bottom: 14px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #333;
+    }
+
+    .field {
+      margin-bottom: 14px;
+    }
+
+    .field:last-child {
+      margin-bottom: 0;
+    }
+
+    .label-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+
+    label {
+      font-size: 13px;
+      color: #ccc;
+    }
+
+    input[type="text"],
+    input[type="password"],
+    select {
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 14px;
+      background: #1a1a1a;
+      border: 1px solid #444;
+      border-radius: 6px;
+      color: #fff;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input[type="text"]:focus,
+    input[type="password"]:focus,
+    select:focus {
+      border-color: #0a84ff;
+    }
+
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid #2a2a2a;
+    }
+
+    .checkbox-row:last-of-type {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+
+    .checkbox-row:first-of-type {
+      padding-top: 0;
+    }
+
+    input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      accent-color: #0a84ff;
+      flex-shrink: 0;
+    }
+
+    .checkbox-label {
+      font-size: 14px;
+      color: #e0e0e0;
+      flex: 1;
+    }
+
+    /* Info Icon & Tooltip */
+    .info-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 16px;
+      height: 16px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #666;
+      background: #333;
+      border-radius: 50%;
+      cursor: help;
+      transition: all 0.2s;
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .info-icon:hover {
+      color: #fff;
+      background: #0a84ff;
+    }
+
+    .info-icon .tooltip {
+      position: absolute;
+      bottom: calc(100% + 8px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: #333;
+      color: #e0e0e0;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 400;
+      white-space: nowrap;
+      max-width: 280px;
+      white-space: normal;
+      text-align: left;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.2s;
+      z-index: 100;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      line-height: 1.4;
+    }
+
+    .info-icon .tooltip::after {
+      content: '';
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 6px solid transparent;
+      border-top-color: #333;
+    }
+
+    .info-icon:hover .tooltip {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .buttons {
+      display: flex;
+      gap: 12px;
+      justify-content: flex-end;
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid #333;
+    }
+
+    button {
+      padding: 10px 20px;
+      font-size: 14px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: background 0.2s;
+    }
+
+    .btn-primary {
+      background: #0a84ff;
+      color: #fff;
+    }
+
+    .btn-primary:hover {
+      background: #0070e0;
+    }
+
+    .btn-secondary {
+      background: #444;
+      color: #fff;
+    }
+
+    .btn-secondary:hover {
+      background: #555;
+    }
+
+    .status {
+      font-size: 12px;
+      color: #4ade80;
+      margin-top: 8px;
+      text-align: right;
+    }
+
+    .status.error {
+      color: #f87171;
+    }
+  </style>
+</head>
+<body>
+  <h1>Einstellungen</h1>
+
+  <div class="section">
+    <div class="section-title">API Keys</div>
+    
+    <div class="field">
+      <div class="label-row">
+        <label for="groqKey">Groq API Key (erforderlich)</label>
+        <span class="info-icon">i<span class="tooltip">Kostenloser Key von console.groq.com. Wird für die Sprache-zu-Text Umwandlung mit Whisper Large V3 verwendet.</span></span>
+      </div>
+      <input type="password" id="groqKey" placeholder="gsk_...">
+    </div>
+
+    <div class="field">
+      <div class="label-row">
+        <label for="haikuKey">Anthropic API Key (optional)</label>
+        <span class="info-icon">i<span class="tooltip">Optional. Verbessert den transkribierten Text mit KI – korrigiert Grammatik und Zeichensetzung.</span></span>
+      </div>
+      <input type="password" id="haikuKey" placeholder="sk-ant-...">
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Optionen</div>
+
+    <div class="checkbox-row">
+      <input type="checkbox" id="enablePolish">
+      <label for="enablePolish" class="checkbox-label">Polish aktivieren</label>
+      <span class="info-icon">i<span class="tooltip">Wenn aktiv, wird der Text nach der Transkription mit Claude Haiku aufbereitet. Benötigt einen Anthropic API Key.</span></span>
+    </div>
+
+    <div class="checkbox-row">
+      <input type="checkbox" id="autopaste">
+      <label for="autopaste" class="checkbox-label">Auto-Paste nach Transkription</label>
+      <span class="info-icon">i<span class="tooltip">Wenn aktiv, wird der Text automatisch ins vorherige Fenster eingefügt. Wenn deaktiviert, wird er nur in die Zwischenablage kopiert.</span></span>
+    </div>
+
+    <div class="checkbox-row">
+      <input type="checkbox" id="beepEnabled">
+      <label for="beepEnabled" class="checkbox-label">Piep-Sound abspielen</label>
+      <span class="info-icon">i<span class="tooltip">Spielt einen kurzen Signalton ab, wenn die Aufnahme startet und endet.</span></span>
+    </div>
+
+    <div class="checkbox-row">
+      <input type="checkbox" id="autoStart">
+      <label for="autoStart" class="checkbox-label">Bei Anmeldung automatisch starten</label>
+      <span class="info-icon">i<span class="tooltip">Startet die App automatisch, wenn du dich an deinem Mac anmeldest.</span></span>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Transkription</div>
+
+    <div class="field">
+      <div class="label-row">
+        <label for="language">Sprache</label>
+        <span class="info-icon">i<span class="tooltip">Die Sprache, in der du sprichst. Verbessert die Erkennungsgenauigkeit.</span></span>
+      </div>
+      <select id="language">
+        <option value="de">Deutsch</option>
+        <option value="en">English</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <div class="label-row">
+        <label for="shortcut">Tastenkürzel</label>
+        <span class="info-icon">i<span class="tooltip">Globales Kürzel zum Starten und Stoppen der Aufnahme. Klicke ins Feld und drücke die gewünschte Kombination.</span></span>
+      </div>
+      <input type="text" id="shortcut" readonly placeholder="Klicken und Tastenkombination drücken">
+    </div>
+  </div>
+
+  <div class="buttons">
+    <button class="btn-secondary" id="cancelBtn">Abbrechen</button>
+    <button class="btn-primary" id="saveBtn">Speichern</button>
+  </div>
+
+  <div id="status" class="status"></div>
+
+  <script>
+    const groqKeyInput = document.getElementById('groqKey');
+    const haikuKeyInput = document.getElementById('haikuKey');
+    const enablePolishCheck = document.getElementById('enablePolish');
+    const autopasteCheck = document.getElementById('autopaste');
+    const beepEnabledCheck = document.getElementById('beepEnabled');
+    const autoStartCheck = document.getElementById('autoStart');
+    const languageSelect = document.getElementById('language');
+    const shortcutInput = document.getElementById('shortcut');
+    const saveBtn = document.getElementById('saveBtn');
+    const cancelBtn = document.getElementById('cancelBtn');
+    const statusEl = document.getElementById('status');
+
+    let originalSettings = {};
+
+    // Load settings
+    async function loadSettings() {
+      const settings = await window.electronAPI.getSettings();
+      originalSettings = { ...settings };
+      
+      groqKeyInput.value = settings.groqApiKey || '';
+      haikuKeyInput.value = settings.haikuApiKey || '';
+      enablePolishCheck.checked = settings.enablePolish || false;
+      autopasteCheck.checked = settings.autopaste !== false;
+      beepEnabledCheck.checked = settings.beepEnabled !== false;
+      autoStartCheck.checked = settings.autoStart || false;
+      languageSelect.value = settings.language || 'de';
+      shortcutInput.value = settings.shortcut || 'Alt+Command+K';
+    }
+
+    // Shortcut capture
+    let isCapturing = false;
+
+    shortcutInput.addEventListener('click', () => {
+      isCapturing = true;
+      shortcutInput.value = 'Drücke Tastenkombination...';
+      shortcutInput.style.borderColor = '#0a84ff';
+    });
+
+    shortcutInput.addEventListener('blur', () => {
+      if (isCapturing) {
+        isCapturing = false;
+        shortcutInput.value = originalSettings.shortcut || 'Alt+Command+K';
+        shortcutInput.style.borderColor = '';
+      }
+    });
+
+    shortcutInput.addEventListener('keydown', (e) => {
+      if (!isCapturing) return;
+      e.preventDefault();
+
+      const parts = [];
+      if (e.ctrlKey) parts.push('Control');
+      if (e.altKey) parts.push('Alt');
+      if (e.shiftKey) parts.push('Shift');
+      if (e.metaKey) parts.push('Command');
+
+      // Ignore standalone modifier keys
+      if (!['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) {
+        parts.push(e.key.toUpperCase());
+      }
+
+      if (parts.length >= 2 && !['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) {
+        shortcutInput.value = parts.join('+');
+        isCapturing = false;
+        shortcutInput.style.borderColor = '';
+        shortcutInput.blur();
+      }
+    });
+
+    // Save
+    saveBtn.addEventListener('click', async () => {
+      const settings = {
+        groqApiKey: groqKeyInput.value.trim(),
+        haikuApiKey: haikuKeyInput.value.trim(),
+        enablePolish: enablePolishCheck.checked,
+        autopaste: autopasteCheck.checked,
+        beepEnabled: beepEnabledCheck.checked,
+        autoStart: autoStartCheck.checked,
+        language: languageSelect.value,
+        shortcut: shortcutInput.value,
+      };
+
+      try {
+        await window.electronAPI.setSettings(settings);
+        statusEl.textContent = 'Gespeichert!';
+        statusEl.classList.remove('error');
+        setTimeout(() => window.close(), 500);
+      } catch (err) {
+        statusEl.textContent = 'Fehler beim Speichern';
+        statusEl.classList.add('error');
+      }
+    });
+
+    // Cancel
+    cancelBtn.addEventListener('click', () => {
+      window.close();
+    });
+
+    loadSettings();
+  </script>
+</body>
+</html>

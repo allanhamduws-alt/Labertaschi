@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Recording</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: transparent;
+      -webkit-app-region: drag;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .container {
+      background: rgba(30, 30, 30, 0.95);
+      border-radius: 16px;
+      padding: 20px 28px;
+      text-align: center;
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+
+    .indicator {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      color: #fff;
+      font-size: 15px;
+      font-weight: 500;
+    }
+
+    .dot {
+      width: 12px;
+      height: 12px;
+      background: #ef4444;
+      border-radius: 50%;
+      animation: pulse 1s ease-in-out infinite;
+    }
+
+    .dot.processing {
+      background: #fbbf24;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.9); }
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .status {
+      margin-top: 8px;
+      font-size: 12px;
+      color: #888;
+    }
+
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="indicator">
+      <div class="dot" id="dot"></div>
+      <span id="label">Aufnahme läuft...</span>
+    </div>
+    <div class="status" id="status">Drücke Hotkey zum Stoppen</div>
+  </div>
+
+  <script>
+    const dotEl = document.getElementById('dot');
+    const labelEl = document.getElementById('label');
+    const statusEl = document.getElementById('status');
+
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let beepEnabled = true;
+
+    // Audio recording
+    async function startRecording() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        
+        const preferredType = 'audio/webm;codecs=opus';
+        const mimeType = MediaRecorder.isTypeSupported(preferredType) ? preferredType : undefined;
+        
+        mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType, audioBitsPerSecond: 128000 } : undefined);
+        audioChunks = [];
+
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data.size > 0) {
+            audioChunks.push(e.data);
+          }
+        };
+
+        mediaRecorder.onstop = async () => {
+          stream.getTracks().forEach(t => t.stop());
+          
+          if (audioChunks.length === 0) {
+            console.log('No audio recorded');
+            return;
+          }
+
+          const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+          const arrayBuffer = await audioBlob.arrayBuffer();
+          
+          console.log('Sending audio:', arrayBuffer.byteLength, 'bytes');
+          window.electronAPI.sendAudio(arrayBuffer);
+        };
+
+        mediaRecorder.start(1000);
+        console.log('Recording started');
+      } catch (err) {
+        console.error('Mic error:', err);
+        labelEl.textContent = 'Mikrofon-Fehler';
+        statusEl.textContent = err.message;
+      }
+    }
+
+    function stopRecording() {
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+        if (beepEnabled) playBeep(400, 0.12);
+        
+        dotEl.classList.add('processing');
+        labelEl.textContent = 'Verarbeite...';
+        statusEl.textContent = '';
+      }
+    }
+
+    function playBeep(frequency, duration) {
+      try {
+        const audioCtx = new AudioContext();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.frequency.value = frequency;
+        oscillator.type = 'sine';
+        gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+        oscillator.start(audioCtx.currentTime);
+        oscillator.stop(audioCtx.currentTime + duration);
+      } catch (e) {
+        console.error('Beep failed', e);
+      }
+    }
+
+    // IPC events
+    window.electronAPI.onRecordingStart(async () => {
+      console.log('Recording start event');
+      try {
+        const settings = await window.electronAPI.getSettings?.();
+        beepEnabled = settings?.beepEnabled !== false;
+      } catch (e) {
+        console.warn('Settings load failed, fallback beep on', e);
+        beepEnabled = true;
+      }
+      if (beepEnabled) playBeep(800, 0.12);
+      dotEl.classList.remove('processing');
+      labelEl.textContent = 'Aufnahme läuft...';
+      statusEl.textContent = 'Drücke Hotkey zum Stoppen';
+      startRecording();
+    });
+
+    window.electronAPI.onRecordingStop(() => {
+      console.log('Recording stop event');
+      stopRecording();
+    });
+
+    window.electronAPI.onStatusUpdate((status) => {
+      labelEl.textContent = status;
+    });
+  </script>
+</body>
+</html>

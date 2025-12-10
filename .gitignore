@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+/electron-menubar/node_modules
 /.pnp
 .pnp.*
 .yarn/*
@@ -19,6 +20,7 @@
 
 # production
 /build
+/electron-menubar/dist
 
 # misc
 .DS_Store
