@@ -117,6 +117,8 @@ function clearHistory() {
 // ============================================================================
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
+const GITHUB_REPO = 'allanhamduws-alt/Labertaschi';
+const CURRENT_VERSION = require('./package.json').version;
 
 async function transcribeAudio(audioBuffer, language = 'de') {
   const apiKey = getStore().get('groqApiKey');
@@ -156,6 +158,92 @@ async function transcribeAudio(audioBuffer, language = 'de') {
     if (error.name === 'AbortError') throw new Error('Timeout nach 30s');
     throw error;
   }
+}
+
+// ============================================================================
+// UPDATE CHECKER
+// ============================================================================
+async function checkForUpdates(silent = false) {
+  try {
+    const response = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`);
+    if (!response.ok) {
+      if (!silent) {
+        dialog.showMessageBox({
+          type: 'error',
+          title: 'Update-Prüfung fehlgeschlagen',
+          message: 'Konnte nicht nach Updates suchen.',
+          detail: `Status: ${response.status}`,
+          buttons: ['OK'],
+        });
+      }
+      return null;
+    }
+
+    const release = await response.json();
+    const latestVersion = release.tag_name.replace(/^v/, '');
+    
+    console.log(`Current version: ${CURRENT_VERSION}, Latest: ${latestVersion}`);
+
+    if (compareVersions(latestVersion, CURRENT_VERSION) > 0) {
+      // New version available
+      const platform = isMac ? 'mac' : 'windows';
+      const assetName = isMac ? '.dmg' : 'Setup';
+      const downloadAsset = release.assets.find(a => 
+        a.name.toLowerCase().includes(assetName.toLowerCase())
+      );
+
+      const result = await dialog.showMessageBox({
+        type: 'info',
+        title: 'Update verfügbar!',
+        message: `Neue Version ${latestVersion} verfügbar`,
+        detail: `Du hast Version ${CURRENT_VERSION}.\n\n${release.body || 'Neue Verbesserungen und Bugfixes.'}\n\nMöchtest du das Update jetzt herunterladen?`,
+        buttons: ['Herunterladen', 'Später'],
+        defaultId: 0,
+      });
+
+      if (result.response === 0) {
+        const downloadUrl = downloadAsset?.browser_download_url || release.html_url;
+        shell.openExternal(downloadUrl);
+      }
+      return { hasUpdate: true, version: latestVersion };
+    } else {
+      if (!silent) {
+        dialog.showMessageBox({
+          type: 'info',
+          title: 'Kein Update verfügbar',
+          message: 'Du hast die neueste Version!',
+          detail: `Aktuelle Version: ${CURRENT_VERSION}`,
+          buttons: ['OK'],
+        });
+      }
+      return { hasUpdate: false, version: CURRENT_VERSION };
+    }
+  } catch (error) {
+    console.error('Update check failed:', error);
+    if (!silent) {
+      dialog.showMessageBox({
+        type: 'error',
+        title: 'Update-Prüfung fehlgeschlagen',
+        message: 'Konnte nicht nach Updates suchen.',
+        detail: error.message,
+        buttons: ['OK'],
+      });
+    }
+    return null;
+  }
+}
+
+function compareVersions(a, b) {
+  const partsA = a.split('.').map(Number);
+  const partsB = b.split('.').map(Number);
+  
+  for (let i = 0; i < Math.max(partsA.length, partsB.length); i++) {
+    const numA = partsA[i] || 0;
+    const numB = partsB[i] || 0;
+    if (numA > numB) return 1;
+    if (numA < numB) return -1;
+  }
+  return 0;
 }
 
 async function polishText(text, language = 'de') {
@@ -326,7 +414,7 @@ function showAboutDialog() {
     type: 'info',
     title: 'Über Labertaschi',
     message: 'Labertaschi',
-    detail: `Version 1.0.0
+    detail: `Version ${CURRENT_VERSION}
 
 Sprachtranskription mit Groq Whisper Large V3
 Optionales Polishing mit Claude Haiku 4.5
@@ -384,6 +472,7 @@ function updateTrayMenu() {
     { label: 'History', submenu: historySubmenu },
     { type: 'separator' },
     { label: 'Einstellungen...', click: createSettingsWindow },
+    { label: 'Nach Updates suchen...', click: () => checkForUpdates(false) },
     { label: 'Über Labertaschi', click: showAboutDialog },
     { type: 'separator' },
     { label: 'Beenden', accelerator: getQuitAccelerator(), click: () => app.quit() },
@@ -680,6 +769,15 @@ app.whenReady().then(() => {
       });
     }, 500);
   }
+
+  // Check for updates silently on startup (after 5 seconds)
+  setTimeout(() => {
+    checkForUpdates(true).then(result => {
+      if (result?.hasUpdate) {
+        console.log(`Update available: ${result.version}`);
+      }
+    });
+  }, 5000);
 });
 
 app.on('will-quit', () => { globalShortcut.unregisterAll(); });

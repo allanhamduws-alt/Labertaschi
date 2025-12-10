@@ -1,6 +1,6 @@
 {
   "name": "labertaschi-menubar",
-  "version": "1.0.0",
+  "version": "1.3.0",
   "description": "Menüleisten-App für Sprachtranskription mit Groq Whisper und optional Claude Haiku Polishing",
   "main": "electron-main.js",
   "scripts": {
