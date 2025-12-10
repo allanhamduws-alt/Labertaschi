@@ -272,7 +272,7 @@
     <div class="checkbox-row">
       <input type="checkbox" id="autoStart">
       <label for="autoStart" class="checkbox-label">Bei Anmeldung automatisch starten</label>
-      <span class="info-icon">i<span class="tooltip">Startet die App automatisch, wenn du dich an deinem Mac anmeldest.</span></span>
+      <span class="info-icon">i<span class="tooltip">Startet die App automatisch, wenn du dich an deinem Computer anmeldest.</span></span>
     </div>
   </div>
 
@@ -320,11 +320,19 @@
     const statusEl = document.getElementById('status');
 
     let originalSettings = {};
+    let platformInfo = { isMac: true, isWin: false };
 
     // Load settings
     async function loadSettings() {
+      // Get platform info
+      if (window.electronAPI.getPlatform) {
+        platformInfo = await window.electronAPI.getPlatform();
+      }
+      
       const settings = await window.electronAPI.getSettings();
       originalSettings = { ...settings };
+      
+      const defaultShortcut = platformInfo.isMac ? 'Alt+Command+K' : 'Ctrl+Alt+K';
       
       groqKeyInput.value = settings.groqApiKey || '';
       haikuKeyInput.value = settings.haikuApiKey || '';
@@ -333,7 +341,7 @@
       beepEnabledCheck.checked = settings.beepEnabled !== false;
       autoStartCheck.checked = settings.autoStart || false;
       languageSelect.value = settings.language || 'de';
-      shortcutInput.value = settings.shortcut || 'Alt+Command+K';
+      shortcutInput.value = settings.shortcut || defaultShortcut;
     }
 
     // Shortcut capture
@@ -348,7 +356,8 @@
     shortcutInput.addEventListener('blur', () => {
       if (isCapturing) {
         isCapturing = false;
-        shortcutInput.value = originalSettings.shortcut || 'Alt+Command+K';
+        const defaultShortcut = platformInfo.isMac ? 'Alt+Command+K' : 'Ctrl+Alt+K';
+        shortcutInput.value = originalSettings.shortcut || defaultShortcut;
         shortcutInput.style.borderColor = '';
       }
     });

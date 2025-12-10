@@ -12,7 +12,21 @@ const {
 } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
-const { spawn } = require('node:child_process');
+const { spawn, exec } = require('node:child_process');
+
+// ============================================================================
+// PLATFORM HELPERS
+// ============================================================================
+const isMac = process.platform === 'darwin';
+const isWin = process.platform === 'win32';
+
+function getDefaultShortcut() {
+  return isMac ? 'Alt+Command+K' : 'Ctrl+Alt+K';
+}
+
+function getQuitAccelerator() {
+  return isMac ? 'Command+Q' : 'Ctrl+Q';
+}
 
 // ============================================================================
 // LAZY LOADED MODULES
@@ -28,7 +42,7 @@ function getStore() {
         groqApiKey: '',
         haikuApiKey: '',
         enablePolish: false,
-        shortcut: 'Alt+Command+K',
+        shortcut: getDefaultShortcut(),
         autoStart: false,
         language: 'de',
         autopaste: true,
@@ -287,6 +301,7 @@ function createRecordingWindow() {
 
 function showAboutDialog() {
   const shortcut = getStore().get('shortcut');
+  const quitKey = isMac ? '⌘Q' : 'Ctrl+Q';
   dialog.showMessageBox({
     type: 'info',
     title: 'Über Labertaschi',
@@ -298,7 +313,7 @@ Optionales Polishing mit Claude Haiku 4.5
 
 Shortcuts:
 • ${shortcut} - Aufnahme starten/stoppen
-• ⌘Q - Beenden
+• ${quitKey} - Beenden
 
 © 2024 Labertaschi`,
     buttons: ['OK'],
@@ -351,30 +366,53 @@ function updateTrayMenu() {
     { label: 'Einstellungen...', click: createSettingsWindow },
     { label: 'Über Labertaschi', click: showAboutDialog },
     { type: 'separator' },
-    { label: 'Beenden', accelerator: 'Command+Q', click: () => app.quit() },
+    { label: 'Beenden', accelerator: getQuitAccelerator(), click: () => app.quit() },
   ];
 
   tray.setContextMenu(Menu.buildFromTemplate(template));
 }
 
 function setupTray() {
-  const iconPath = path.join(__dirname, 'iconTemplate.png');
   let icon;
 
-  if (fs.existsSync(iconPath)) {
-    icon = nativeImage.createFromPath(iconPath);
-    icon.setTemplateImage(true);
+  if (isMac) {
+    // macOS: Use template image for proper menubar appearance
+    const iconPath = path.join(__dirname, 'iconTemplate.png');
+    if (fs.existsSync(iconPath)) {
+      icon = nativeImage.createFromPath(iconPath);
+      icon.setTemplateImage(true);
+    } else {
+      icon = nativeImage.createFromDataURL(
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAAbwAAAG8B8aLcQwAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAABYSURBVDiNY2CgMmBEF/j//z/DtWvX0IXh4vr6+v/////HKoauwMDAAN4cZAVwzYwQBmaGT58+MTAwMLxmYGBgYGJiYti7dy9cHq4ATQypBlkzVgNGNQADAGVDHxEz5ThqAAAAAElFTkSuQmCC',
+      );
+      icon.setTemplateImage(true);
+    }
   } else {
-    icon = nativeImage.createFromDataURL(
-      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAAbwAAAG8B8aLcQwAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAABYSURBVDiNY2CgMmBEF/j//z/DtWvX0IXh4vr6+v/////HKoauwMDAAN4cZAVwzYwQBmaGT58+MTAwMLxmYGBgYGJiYti7dy9cHq4ATQypBlkzVgNGNQADAGVDHxEz5ThqAAAAAElFTkSuQmCC',
-    );
-    icon.setTemplateImage(true);
+    // Windows: Use regular colored icon
+    const icoPath = path.join(__dirname, 'icon.ico');
+    const pngPath = path.join(__dirname, 'icon.png');
+    if (fs.existsSync(icoPath)) {
+      icon = nativeImage.createFromPath(icoPath);
+    } else if (fs.existsSync(pngPath)) {
+      icon = nativeImage.createFromPath(pngPath);
+    } else {
+      icon = nativeImage.createFromDataURL(
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAAbwAAAG8B8aLcQwAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAABYSURBVDiNY2CgMmBEF/j//z/DtWvX0IXh4vr6+v/////HKoauwMDAAN4cZAVwzYwQBmaGT58+MTAwMLxmYGBgYGJiYti7dy9cHq4ATQypBlkzVgNGNQADAGVDHxEz5ThqAAAAAElFTkSuQmCC',
+      );
+    }
   }
 
   tray = new Tray(icon);
   tray.setToolTip('Labertaschi');
   updateTrayMenu();
-  tray.on('click', () => { tray.popUpContextMenu(); });
+
+  // On Windows, both left and right click should show the context menu
+  if (isWin) {
+    tray.on('click', () => { tray.popUpContextMenu(); });
+    tray.on('right-click', () => { tray.popUpContextMenu(); });
+  } else {
+    tray.on('click', () => { tray.popUpContextMenu(); });
+  }
 }
 
 // ============================================================================
@@ -385,29 +423,49 @@ let previousAppName = null;
 
 function savePreviousApp() {
   return new Promise((resolve) => {
-    const proc = spawn('osascript', [
-      '-e', 'tell application "System Events" to get name of first application process whose frontmost is true',
-    ]);
-    let output = '';
-    proc.stdout.on('data', (d) => { output += d.toString(); });
-    proc.on('close', () => { previousAppName = output.trim(); resolve(previousAppName); });
-    proc.on('error', () => resolve(null));
+    if (isMac) {
+      const proc = spawn('osascript', [
+        '-e', 'tell application "System Events" to get name of first application process whose frontmost is true',
+      ]);
+      let output = '';
+      proc.stdout.on('data', (d) => { output += d.toString(); });
+      proc.on('close', () => { previousAppName = output.trim(); resolve(previousAppName); });
+      proc.on('error', () => resolve(null));
+    } else {
+      // On Windows, we don't track previous app - just resolve
+      resolve(null);
+    }
   });
 }
 
 function autopasteText(text) {
   clipboard.writeText(text);
-  const script = previousAppName
-    ? `tell application "${previousAppName}" to activate
-       delay 0.3
-       tell application "System Events" to keystroke "v" using command down`
-    : `delay 0.2
-       tell application "System Events" to keystroke "v" using command down`;
 
-  setTimeout(() => {
-    const proc = spawn('osascript', ['-e', script]);
-    proc.stderr.on('data', (d) => console.error('AppleScript error:', d.toString()));
-  }, 150);
+  if (isMac) {
+    const script = previousAppName
+      ? `tell application "${previousAppName}" to activate
+         delay 0.3
+         tell application "System Events" to keystroke "v" using command down`
+      : `delay 0.2
+         tell application "System Events" to keystroke "v" using command down`;
+
+    setTimeout(() => {
+      const proc = spawn('osascript', ['-e', script]);
+      proc.stderr.on('data', (d) => console.error('AppleScript error:', d.toString()));
+    }, 150);
+  } else if (isWin) {
+    // On Windows, use PowerShell to simulate Ctrl+V
+    // First, small delay to ensure clipboard is ready
+    setTimeout(() => {
+      const psScript = `
+        Add-Type -AssemblyName System.Windows.Forms
+        [System.Windows.Forms.SendKeys]::SendWait("^v")
+      `;
+      exec(`powershell -Command "${psScript.replace(/\n/g, ' ')}"`, (err) => {
+        if (err) console.error('PowerShell paste error:', err);
+      });
+    }, 200);
+  }
 }
 
 function startTranscription() {
@@ -536,8 +594,20 @@ function setupIpcHandlers() {
   });
 
   ipcMain.on('open:accessibility', () => {
-    shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility');
+    if (isMac) {
+      shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility');
+    } else if (isWin) {
+      // On Windows, open Privacy Settings
+      shell.openExternal('ms-settings:privacy-microphone');
+    }
   });
+
+  // Expose platform info to renderer
+  ipcMain.handle('platform:get', () => ({
+    isMac,
+    isWin,
+    platform: process.platform,
+  }));
 }
 
 // ============================================================================

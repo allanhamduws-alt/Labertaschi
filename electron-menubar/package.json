@@ -7,6 +7,10 @@
     "dev": "electron .",
     "build": "electron-builder --mac --arm64",
     "build:universal": "electron-builder --mac --universal",
+    "build:win": "electron-builder --win --x64",
+    "build:win:ia32": "electron-builder --win --ia32",
+    "build:all": "electron-builder --mac --win",
+    "generate:ico": "node scripts/generate-ico.js",
     "start": "electron .",
     "lint": "echo \"no lint configured\""
   },
@@ -15,7 +19,8 @@
     "whisper",
     "groq",
     "menubar",
-    "macos"
+    "macos",
+    "windows"
   ],
   "author": "Labertaschi",
   "license": "MIT",
@@ -51,6 +56,29 @@
         }
       ]
     },
+    "win": {
+      "icon": "icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "icon.ico",
+      "uninstallerIcon": "icon.ico"
+    },
     "files": [
       "electron-main.js",
       "preload.js",
@@ -58,6 +86,7 @@
       "history.html",
       "recording.html",
       "icon.png",
+      "icon.ico",
       "iconTemplate.png",
       "iconTemplate@2x.png"
     ],

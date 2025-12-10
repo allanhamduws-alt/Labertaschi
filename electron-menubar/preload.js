@@ -18,4 +18,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Accessibility
   openAccessibilitySettings: () => ipcRenderer.send('open:accessibility'),
+
+  // Platform
+  getPlatform: () => ipcRenderer.invoke('platform:get'),
 });
