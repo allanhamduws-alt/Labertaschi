@@ -129,7 +129,7 @@ async function transcribeAudio(audioBuffer, language = 'de') {
   const formData = new FormData();
   const blob = new Blob([audioBuffer], { type: 'audio/webm' });
   formData.append('file', blob, 'audio.webm');
-  formData.append('model', 'whisper-large-v3');
+  formData.append('model', 'whisper-large-v3-turbo');
   formData.append('language', language);
   formData.append('response_format', 'json');
 
