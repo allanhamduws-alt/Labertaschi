@@ -43,6 +43,9 @@ jobs:
             echo "Developer-ID-Zertifikat gefunden -> signierter + notarisierter Build (Auto-Update möglich)"
           else
             echo "Kein Signing-Zertifikat (CSC_LINK leer) -> unsignierter Build (nur DMG-Download)"
+            # WICHTIG: leere CSC-Variablen entfernen, sonst versucht electron-builder
+            # mit leerem Zertifikatspfad zu signieren ("... not a file").
+            unset CSC_LINK CSC_KEY_PASSWORD
             export CSC_IDENTITY_AUTO_DISCOVERY=false
           fi
           npm run build
