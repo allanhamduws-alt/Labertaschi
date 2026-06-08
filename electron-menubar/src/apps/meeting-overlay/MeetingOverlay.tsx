@@ -13,13 +13,21 @@ interface MeetingStatus {
   systemLevel: number;
 }
 
+// Downsampling auf die Zielrate per MITTELUNG (Box-Filter) statt nearest-neighbor:
+// leichtes Anti-Aliasing, deutlich sauberer als die frühere Dezimierung. Läuft auf
+// einem Default-AudioContext (Geräterate) — ein erzwungener 16-kHz-Context lieferte
+// in Electron/Chromium mit MediaStreamSource teils STILLE (Capture-Regression).
 function downsample(f32: Float32Array, fromRate: number, toRate: number): Float32Array {
-  if (fromRate === toRate) return f32;
+  if (fromRate <= toRate) return f32;
   const ratio = fromRate / toRate;
   const outLen = Math.floor(f32.length / ratio);
   const out = new Float32Array(outLen);
   for (let i = 0; i < outLen; i++) {
-    out[i] = f32[Math.floor(i * ratio)];
+    const start = Math.floor(i * ratio);
+    const end = Math.min(f32.length, Math.floor((i + 1) * ratio));
+    let s = 0;
+    for (let j = start; j < end; j++) s += f32[j];
+    out[i] = s / Math.max(1, end - start);
   }
   return out;
 }
@@ -117,10 +125,10 @@ export function MeetingOverlay() {
       });
       streamRef.current = stream;
 
-      // AudioContext fest auf die Zielrate → Chromium resampelt sauber (Anti-Aliasing),
-      // statt der früheren groben nearest-neighbor-Dezimierung. ctx.sampleRate === 16000,
-      // daher ist das spätere downsample() ein No-op (Sicherheitsnetz, falls die Rate abweicht).
-      const ctx = new AudioContext({ sampleRate: TARGET_RATE });
+      // Default-AudioContext (Geräterate). KEIN erzwungenes sampleRate:16000 — das lieferte
+      // mit MediaStreamSource in Electron/Chromium teils eine STILLE Spur. Auf 16 kHz wird
+      // in JS per Mittelung heruntergerechnet (downsample()).
+      const ctx = new AudioContext();
       audioCtxRef.current = ctx;
 
       await ctx.audioWorklet.addModule(new URL('./mic-worklet.js', import.meta.url));
@@ -185,7 +193,7 @@ export function MeetingOverlay() {
       }
       sysStreamRef.current = stream;
 
-      const ctx = new AudioContext({ sampleRate: TARGET_RATE });
+      const ctx = new AudioContext();
       sysAudioCtxRef.current = ctx;
 
       await ctx.audioWorklet.addModule(new URL('./mic-worklet.js', import.meta.url));
