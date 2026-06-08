@@ -38,8 +38,17 @@ jobs:
 
       - name: Build Mac (arm64 + x64)
         working-directory: electron-menubar
-        run: npm run build:universal
+        run: |
+          if [ -n "$CSC_LINK" ]; then
+            echo "Developer-ID-Zertifikat gefunden -> signierter + notarisierter Build (Auto-Update möglich)"
+          else
+            echo "Kein Signing-Zertifikat (CSC_LINK leer) -> unsignierter Build (nur DMG-Download)"
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+          fi
+          npm run build:universal
         env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
