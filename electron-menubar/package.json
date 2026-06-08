@@ -1,6 +1,6 @@
 {
   "name": "paply-menubar",
-  "version": "1.10.0",
+  "version": "1.10.1",
   "description": "Menüleisten-App für Sprachtranskription mit Groq Whisper und optional Groq Llama Polishing",
   "main": "electron-main.js",
   "scripts": {

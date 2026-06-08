@@ -8,12 +8,16 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
-    body {
+    /* WICHTIG: globals.css setzt body{bg-background} (undurchsichtig) und wird NACH
+       diesem Block geladen -> ohne !important wäre das Overlay ein weißer Kasten.
+       Transparent erzwingen, damit nur Pill + Karte sichtbar sind (floating). */
+    html, body, #root {
       margin: 0;
       padding: 0;
-      background: transparent;
-      -webkit-app-region: drag;
+      background: transparent !important;
+      background-color: transparent !important;
     }
+    body { -webkit-app-region: drag; }
   </style>
 </head>
 <body>
