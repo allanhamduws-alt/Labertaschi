@@ -15,6 +15,7 @@ const { evaluateHealth } = require('./health-monitor');
 const { generateMeetingSummary } = require('./summary');
 const { diarizeWithDeepgram } = require('./diarization');
 const { wavDurationSeconds, estimateDeepgramCostUsd, monthKey, accumulateUsage } = require('./deepgram-usage');
+const { compressToOpus, decodeToWav } = require('./audio-compress');
 
 function speakerLabel(s) {
   if (s === 'me') return 'Ich';
@@ -328,6 +329,23 @@ function createMeetingController(deps) {
         }
       } catch { /* Protokoll später per Button nachholbar */ }
 
+      // Speicher sparen: finale Spuren -> Opus (Transkript ist die Hauptsache),
+      // danach die unkomprimierte WAV löschen. Schlägt die Kompression fehl, bleibt die WAV.
+      for (const ch of ['mic', 'system']) {
+        const wavPath = nodePath.join(meetingDir, `audio_${ch}.wav`);
+        if (!fs.existsSync(wavPath)) continue;
+        try {
+          const opusPath = nodePath.join(meetingDir, `audio_${ch}.opus`);
+          const ok = await compressToOpus(wavPath, opusPath);
+          if (ok && fs.existsSync(opusPath) && fs.statSync(opusPath).size > 0) {
+            try { fs.rmSync(wavPath); } catch { /* WAV-Löschen best effort */ }
+          }
+        } catch { /* Kompression best effort — WAV bleibt erhalten */ }
+      }
+      // Redundante Chunk-Dateien entfernen (nur Absturzsicherung während der Aufnahme;
+      // 'Neu transkribieren' nutzt jetzt die finale Audiodatei).
+      try { fs.rmSync(chunksDir, { recursive: true, force: true }); } catch { /* best effort */ }
+
       _emit('meeting:stopped', { id });
       try { if (overlayWin && typeof overlayWin.hide === 'function') overlayWin.hide(); } catch { /* Fake/zerstört */ }
       overlayWin = null;
@@ -386,9 +404,10 @@ function createMeetingController(deps) {
 
   async function retranscribe(id) {
     const path = require('node:path');
-    const sampleDir = path.dirname(meetingStore.chunkPath(id, 'mic', 0));
-    if (!fs.existsSync(sampleDir)) return false;
-    const all = fs.readdirSync(sampleDir).filter((f) => /^(mic|system)_\d+\.wav$/.test(f));
+    // Chunks werden nach dem Stop gelöscht — 'Neu transkribieren' nutzt die finalen
+    // Spuren (audio_<ch>.opus bzw. .wav). Opus wird per ffmpeg zu temporärem WAV
+    // dekodiert, dann pro Kanal in feste Fenster zerlegt und neu transkribiert.
+    const meetingDir = path.dirname(path.dirname(meetingStore.chunkPath(id, 'mic', 0)));
     const mic = []; const sys = [];
     const lastText = { mic: '', system: '' };
     const q = new TranscriptionQueue({
@@ -400,17 +419,35 @@ function createMeetingController(deps) {
       const added = segments.map((s) => s.text).join(' ');
       lastText[channel] = ((lastText[channel] || '') + ' ' + added).slice(-800).trimStart();
     });
-    // Pro Kanal sortiert einreihen; tOffset aus echten Chunk-Längen kumulieren
-    // (Chunks sind durch VAD variabel lang — seq*windowSeconds wäre falsch).
+
+    const windowBytes = (windowSeconds || 30) * sampleRate * 2;
+    let any = false;
     for (const channel of ['mic', 'system']) {
-      const files = all.filter((f) => f.startsWith(channel + '_')).sort();
-      let cumOffset = 0;
-      for (const f of files) {
-        const wav = fs.readFileSync(path.join(sampleDir, f));
-        q.enqueue({ channel, wavBuffer: wav, tOffset: cumOffset });
-        cumOffset += Math.max(0, wav.length - 44) / 2 / sampleRate;
+      const wavPath = path.join(meetingDir, `audio_${channel}.wav`);
+      const opusPath = path.join(meetingDir, `audio_${channel}.opus`);
+      let sourceWav = null;
+      let tmp = null;
+      if (fs.existsSync(wavPath)) {
+        sourceWav = wavPath; // ältere Meetings (vor Kompression) bzw. Fallback
+      } else if (fs.existsSync(opusPath)) {
+        tmp = path.join(meetingDir, `._retr_${channel}.wav`);
+        const ok = await decodeToWav(opusPath, tmp, { sampleRate });
+        if (ok && fs.existsSync(tmp)) sourceWav = tmp;
       }
+      if (!sourceWav) continue;
+      any = true;
+      const buf = fs.readFileSync(sourceWav);
+      const pcm = buf.subarray(44); // WAV-Header (44 Bytes) überspringen
+      let cumOffset = 0;
+      for (let off = 0; off < pcm.length; off += windowBytes) {
+        const slice = pcm.subarray(off, Math.min(off + windowBytes, pcm.length));
+        const chunkWav = encodeWav(Buffer.from(slice), { sampleRate, channels: 1 });
+        q.enqueue({ channel, wavBuffer: chunkWav, tOffset: cumOffset });
+        cumOffset += slice.length / 2 / sampleRate;
+      }
+      if (tmp) { try { fs.rmSync(tmp); } catch { /* Temp-Aufräumen best effort */ } }
     }
+    if (!any) return false;
     await q.idle();
     const merged = mergeSegments(mic, sys);
     const full = meetingStore.get(id);

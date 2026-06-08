@@ -146,17 +146,21 @@ function createMeetingStore({ baseDir, store }) {
       }
     }
 
-    // Bestimme Audio-Pfade (können existieren oder nicht)
-    const micAudioPath = path.join(_meetingDir(id), 'audio_mic.wav');
-    const systemAudioPath = path.join(_meetingDir(id), 'audio_system.wav');
+    // Audio-Pfade: komprimiertes Opus bevorzugen, sonst (ältere Meetings) WAV.
+    const audioPath = (channel) => {
+      const opus = path.join(_meetingDir(id), `audio_${channel}.opus`);
+      if (fs.existsSync(opus)) return opus;
+      const wav = path.join(_meetingDir(id), `audio_${channel}.wav`);
+      return fs.existsSync(wav) ? wav : null;
+    };
 
     return {
       index,
       transcript,
       summary,
       audio: {
-        mic: fs.existsSync(micAudioPath) ? micAudioPath : null,
-        system: fs.existsSync(systemAudioPath) ? systemAudioPath : null,
+        mic: audioPath('mic'),
+        system: audioPath('system'),
       },
     };
   }
