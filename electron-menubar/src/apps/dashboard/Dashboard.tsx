@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { 
-  Mic, History, BarChart3, Users, Code, Settings, 
+import {
+  Mic, History, BarChart3, Users, Code, Settings,
   Play, Square, Loader2, Copy, Check, Trash2, Star,
   Clock, Zap, MessageSquare, Plus, X, Search,
   Palette, FileText, Target, Edit, Lightbulb, Mail,
-  Instagram, Sparkles, Save, Eye
+  Instagram, Sparkles, Save, Eye, Headphones
 } from 'lucide-react';
+import { MeetingsView } from './views/MeetingsView';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -20,7 +21,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { cn } from '@/lib/utils';
 import type { Settings as SettingsType, HistoryItem, Stats, Profile, CustomAgent, Snippet } from '@/types/electron';
 
-type NavItem = 'transcription' | 'history' | 'stats' | 'agents' | 'snippets' | 'settings';
+type NavItem = 'transcription' | 'history' | 'stats' | 'agents' | 'snippets' | 'settings' | 'meetings';
 
 // Icon mapping for agents
 const AGENT_ICONS: Record<string, React.ReactNode> = {
@@ -169,6 +170,7 @@ export function Dashboard() {
   const navItems = [
     { id: 'transcription' as const, label: 'Transkription', icon: Mic },
     { id: 'history' as const, label: 'History', icon: History },
+    { id: 'meetings' as const, label: 'Meetings', icon: Headphones },
     { id: 'stats' as const, label: 'Stats', icon: BarChart3 },
     { id: 'agents' as const, label: 'Agenten', icon: Users },
     { id: 'snippets' as const, label: 'Snippets', icon: Code },
@@ -249,6 +251,8 @@ export function Dashboard() {
               copied={copied}
             />
           )}
+
+          {activeNav === 'meetings' && <MeetingsView />}
 
           {activeNav === 'stats' && <StatsView stats={stats} history={history} settings={settings} />}
 
