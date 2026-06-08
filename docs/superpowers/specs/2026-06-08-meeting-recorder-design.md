@@ -118,7 +118,8 @@ ein nachgelagerter, jederzeit wiederholbarer Schritt.
   - **Rot** = kritisches Problem (System-Audio-**Berechtigung fehlt**, Platte voll, Aufnahme gestoppt).
     Immer mit **Klartext-Hinweis + Aktion** (z. B. Deep-Link zu *Systemeinstellungen → Datenschutz →
     Bildschirm- & Systemaudioaufnahme → „Nur Systemaudioaufnahme"*).
-- Anzeige an **zwei Stellen**: Menubar-Tray-Icon (Farbpunkt) + im **MeetingOverlay**.
+- Anzeige an **zwei Stellen**: Menubar-Tray-Icon (Farbpunkt) + im **MeetingOverlay** (kleines
+  Mikrofon-Icon mit Pegelbalken + grünem Punkt, §4.8).
 
 ### 4.4 Near-Live-Transkription (R5, R7)
 - Jeder fertige Chunk wird in die **TranscriptionQueue** gelegt und an **Groq Whisper** geschickt:
@@ -199,8 +200,11 @@ ein nachgelagerter, jederzeit wiederholbarer Schritt.
   - Darunter: **vollständiges, sprechergetrenntes Transkript** (zwei Spalten / farbige Sprecher-Labels
     „Ich" vs. „Gegenstelle"), Sprecher umbenennbar.
   - **Audio-Wiedergabe** (Mic/System bzw. Mix), Button „Protokoll neu erzeugen", „Neu transkribieren".
-- **MeetingOverlay** während Aufnahme: kompaktes Always-on-top-Widget (wie `RecordingWidget`) mit
-  grünem Health-Status, Dauer, Pegel beider Kanäle, Stop-Button; optional ausklappbar zum
+- **MeetingOverlay** während Aufnahme: bewusst **sehr kleines, unauffälliges** Always-on-top-Icon —
+  ein **Mikrofon-Symbol mit live Pegel-/Sprechbalken** (wie bei Publi, nur deutlich kleiner als das
+  140×52-px-`RecordingWidget`) plus ein **kleiner grüner Gesundheitspunkt** (grün = läuft & wird
+  sicher gesichert; gelb/rot bei Problem). Es soll die Bildschirmarbeit nicht stören. Auf
+  Hover/Klick **ausklappbar** zu Dauer, Pegel beider Kanäle, Stop-Button und optional dem
   mitlaufenden Transkript.
 
 ## 5. Datenmodell
