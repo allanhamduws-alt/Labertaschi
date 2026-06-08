@@ -1,3 +1,5 @@
+import type { MeetingIndexEntry, MeetingFull, MeetingSummary, MeetingSegment } from './meeting';
+
 export interface Settings {
   groqApiKey: string;
   enablePolish: boolean;
@@ -10,6 +12,7 @@ export interface Settings {
   hideDock: boolean;
   activeProfile: string;
   pttThreshold: number;
+  meetingHotkey: string;
 }
 
 export interface HistoryItem {
@@ -151,6 +154,25 @@ export interface ElectronAPI {
 
   // Accessibility
   openAccessibilitySettings: () => void;
+
+  // Meeting-Recorder
+  startMeeting: () => Promise<{ id: string } | null>;
+  stopMeeting: () => Promise<{ id: string | null } | null>;
+  getMeetingStatus: () => Promise<{ active: boolean; id: string | null }>;
+  setOverlayExpanded: (expanded: boolean) => void;
+  sendMicPcm: (buf: ArrayBuffer) => void;
+  sendMicLevel: (lvl: number) => void;
+  listMeetings: () => Promise<MeetingIndexEntry[]>;
+  getMeeting: (id: string) => Promise<MeetingFull | null>;
+  deleteMeeting: (id: string) => Promise<boolean>;
+  retranscribeMeeting: (id: string) => Promise<boolean>;
+  regenerateSummary: (id: string) => Promise<MeetingSummary | null>;
+  updateSpeakerName: (id: string, channel: 'mic' | 'system', name: string) => Promise<boolean>;
+  toggleMeetingTodo: (id: string, idx: number) => Promise<boolean>;
+  onMeetingStatus: (cb: (s: { color: 'green' | 'yellow' | 'red'; reason: string; durationMs: number; micLevel: number; systemLevel: number }) => void) => void;
+  onMeetingTranscriptChunk: (cb: (segs: MeetingSegment[]) => void) => void;
+  onMeetingStarted: (cb: (d: { id: string }) => void) => void;
+  onMeetingStopped: (cb: (d: { id: string }) => void) => void;
 
   // Platform
   getPlatform: () => Promise<Platform>;

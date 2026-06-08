@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Key, Keyboard, Volume2, Eye, EyeOff, Globe } from 'lucide-react';
+import { Key, Keyboard, Volume2, Eye, EyeOff, Globe, Mic } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -47,6 +47,8 @@ export function SettingsApp() {
   const [groqKey, setGroqKey] = useState('');
   const [shortcut, setShortcut] = useState('');
   const [isCapturing, setIsCapturing] = useState(false);
+  const [meetingHotkey, setMeetingHotkey] = useState('');
+  const [isCapturingMeeting, setIsCapturingMeeting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -60,6 +62,7 @@ export function SettingsApp() {
         setPlatform(platformData);
         setGroqKey(settingsData.groqApiKey || '');
         setShortcut(settingsData.shortcut || '');
+        setMeetingHotkey(settingsData.meetingHotkey || '');
       } catch (error) {
         console.error('Failed to load settings:', error);
       }
@@ -67,7 +70,7 @@ export function SettingsApp() {
     loadData();
   }, []);
 
-  // Key-capture handler
+  // Key-capture handler for Diktat-Shortcut
   const handleKeyCapture = useCallback((e: KeyboardEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -75,6 +78,17 @@ export function SettingsApp() {
     if (accel) {
       setShortcut(accel);
       setIsCapturing(false);
+    }
+  }, []);
+
+  // Key-capture handler for Meeting-Recorder
+  const handleKeyCaptureM = useCallback((e: KeyboardEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const accel = keyEventToAccelerator(e);
+    if (accel) {
+      setMeetingHotkey(accel);
+      setIsCapturingMeeting(false);
     }
   }, []);
 
@@ -268,6 +282,58 @@ export function SettingsApp() {
                   <span>→ Aufnahme solange gehalten</span>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Meeting-Recorder-Shortcut */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Meeting-Recorder</CardTitle>
+              <CardDescription>
+                Globaler Hotkey zum Starten/Stoppen der Meeting-Aufnahme
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    if (isCapturingMeeting) {
+                      setIsCapturingMeeting(false);
+                      window.removeEventListener('keydown', handleKeyCaptureM, true);
+                    } else {
+                      setIsCapturingMeeting(true);
+                      window.addEventListener('keydown', handleKeyCaptureM, true);
+                    }
+                  }}
+                  className={cn(
+                    'flex-1 h-10 px-3 rounded-md border text-sm font-mono text-left transition-colors',
+                    isCapturingMeeting
+                      ? 'border-primary bg-primary/5 text-primary animate-pulse'
+                      : 'border-input bg-background text-foreground hover:bg-muted/50'
+                  )}
+                >
+                  {isCapturingMeeting
+                    ? '⌨️ Drücke eine Tastenkombination...'
+                    : meetingHotkey || 'Command+Shift+X'}
+                </button>
+                <Button
+                  onClick={async () => {
+                    if (isCapturingMeeting) {
+                      setIsCapturingMeeting(false);
+                      window.removeEventListener('keydown', handleKeyCaptureM, true);
+                    }
+                    await handleSave('meetingHotkey', meetingHotkey || 'Command+Shift+X');
+                  }}
+                  disabled={isSaving}
+                >
+                  Speichern
+                </Button>
+              </div>
+              {meetingHotkey && shortcut && meetingHotkey === shortcut && (
+                <p className="mt-2 text-xs text-destructive">
+                  Achtung: identisch mit dem Diktat-Hotkey
+                </p>
+              )}
             </CardContent>
           </Card>
 

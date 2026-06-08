@@ -57,6 +57,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Accessibility
   openAccessibilitySettings: () => ipcRenderer.send('open:accessibility'),
 
+  // Meeting-Recorder
+  startMeeting: () => ipcRenderer.invoke('meeting:start'),
+  stopMeeting: () => ipcRenderer.invoke('meeting:stop'),
+  getMeetingStatus: () => ipcRenderer.invoke('meeting:get-status'),
+  sendMicPcm: (buf) => ipcRenderer.send('meeting:mic-pcm', buf),
+  sendMicLevel: (lvl) => ipcRenderer.send('meeting:mic-level', lvl),
+  setOverlayExpanded: (expanded) => ipcRenderer.send('meeting:overlay-expand', expanded),
+  listMeetings: () => ipcRenderer.invoke('meetings:list'),
+  getMeeting: (id) => ipcRenderer.invoke('meetings:get', id),
+  deleteMeeting: (id) => ipcRenderer.invoke('meetings:delete', id),
+  retranscribeMeeting: (id) => ipcRenderer.invoke('meetings:retranscribe', id),
+  regenerateSummary: (id) => ipcRenderer.invoke('meetings:regenerateSummary', id),
+  updateSpeakerName: (id, channel, name) => ipcRenderer.invoke('meetings:updateSpeakerName', id, channel, name),
+  toggleMeetingTodo: (id, idx) => ipcRenderer.invoke('meetings:toggleTodo', id, idx),
+  onMeetingStatus: (cb) => ipcRenderer.on('meeting:status', (_e, s) => cb(s)),
+  onMeetingTranscriptChunk: (cb) => ipcRenderer.on('meeting:transcript-chunk', (_e, segs) => cb(segs)),
+  onMeetingStarted: (cb) => ipcRenderer.on('meeting:started', (_e, d) => cb(d)),
+  onMeetingStopped: (cb) => ipcRenderer.on('meeting:stopped', (_e, d) => cb(d)),
+
   // Platform
   getPlatform: () => ipcRenderer.invoke('platform:get'),
 });

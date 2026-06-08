@@ -28,6 +28,17 @@ const GlobeKeyManager = require('./globe-key-manager');
 const globeKeyManager = new GlobeKeyManager();
 
 // ============================================================================
+// AUDIO TEE MANAGER + MEETING CONTROLLER (System-Audio-Aufnahme für Meetings)
+// ============================================================================
+const AudioTeeManager = require('./audio-tee-manager');
+const audioTeeManager = new AudioTeeManager();
+const { createMeetingController } = require('./meeting/meeting-controller');
+const { createMeetingStore } = require('./meeting/meeting-store');
+let meetingController = null;   // lazy in app.whenReady (braucht getStore + Pfade)
+let meetingStore = null;        // dito; von IPC-Handlern referenziert
+let meetingOverlayWindow = null;
+
+// ============================================================================
 // PUSH-TO-TALK STATE
 // ============================================================================
 let pttKeyDownTime = 0;      // Timestamp when hotkey was pressed down
@@ -104,6 +115,10 @@ function getStore() {
         ],
         // Favorites
         favorites: [],
+        // Meeting-Recorder
+        meetings: [],
+        meetingHotkey: 'Command+Shift+X',
+        meetingSummaryModel: 'llama-3.3-70b-versatile',
       },
     });
   }
@@ -1124,6 +1139,55 @@ function createRecordingWindow() {
   return recordingWindow;
 }
 
+function createMeetingOverlayWindow() {
+  if (meetingOverlayWindow && !meetingOverlayWindow.isDestroyed()) {
+    meetingOverlayWindow.showInactive();
+    return meetingOverlayWindow;
+  }
+
+  const { screen } = require('electron');
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width } = primaryDisplay.workAreaSize;
+
+  const widgetWidth = 200;
+  const widgetHeight = 64;
+
+  const windowOptions = {
+    width: widgetWidth,
+    height: widgetHeight,
+    show: false,
+    resizable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  };
+
+  if (isMac) {
+    windowOptions.frame = false;
+    windowOptions.transparent = true;
+    windowOptions.focusable = false;
+  } else {
+    windowOptions.frame = false;
+    windowOptions.transparent = false;
+    windowOptions.backgroundColor = '#1e1e1e';
+    windowOptions.focusable = false;
+  }
+
+  meetingOverlayWindow = new BrowserWindow(windowOptions);
+  meetingOverlayWindow.loadFile(path.join(__dirname, 'renderer', 'meeting-overlay.html'));
+  meetingOverlayWindow.on('closed', () => { meetingOverlayWindow = null; });
+
+  // Position: oben rechts
+  meetingOverlayWindow.setPosition(width - widgetWidth - 24, 24);
+  meetingOverlayWindow.showInactive();
+
+  return meetingOverlayWindow;
+}
+
 function showAboutDialog() {
   const shortcut = getStore().get('shortcut');
   const quitKey = isMac ? '⌘Q' : 'Ctrl+Q';
@@ -1800,6 +1864,19 @@ function registerHotkey() {
     retryLastRecording();
   });
 
+  // Register Meeting-Recorder hotkey (Standard Cmd+Shift+X, Toggle)
+  const meetingKey = getStore().get('meetingHotkey', 'Command+Shift+X');
+  try { globalShortcut.unregister(meetingKey); } catch {}
+  const meetingOk = globalShortcut.register(meetingKey, () => {
+    console.log('Meeting hotkey pressed:', meetingKey);
+    if (meetingController && meetingController.isActive()) {
+      Promise.resolve(meetingController.stop()).catch((e) => console.error('Meeting stop error:', e));
+    } else if (meetingController) {
+      meetingController.start();
+    }
+  });
+  if (!meetingOk) console.error('Meeting hotkey registration failed:', meetingKey);
+
   // Register Agent-Switch hotkeys (Cmd+1, Cmd+2, Cmd+3, ...)
   registerAgentHotkeys();
 }
@@ -2023,6 +2100,28 @@ function showSmartPasteOverlay() {
 // IPC HANDLERS
 // ============================================================================
 function setupIpcHandlers() {
+  // Meeting-Recorder
+  ipcMain.handle('meeting:start', () => (meetingController ? meetingController.start() : null));
+  ipcMain.handle('meeting:stop', () => (meetingController ? meetingController.stop() : null));
+  ipcMain.handle('meeting:get-status', () => (meetingController ? meetingController.getStatus() : { active: false, id: null }));
+  ipcMain.on('meeting:overlay-expand', (_e, expanded) => {
+    if (!meetingOverlayWindow || meetingOverlayWindow.isDestroyed()) return;
+    const { screen } = require('electron');
+    const { width } = screen.getPrimaryDisplay().workAreaSize;
+    const w = expanded ? 360 : 200;
+    const h = expanded ? 240 : 64;
+    meetingOverlayWindow.setBounds({ x: width - w - 24, y: 24, width: w, height: h });
+  });
+  ipcMain.on('meeting:mic-pcm', (_e, buf) => { if (meetingController) meetingController.onMicPcm(Buffer.from(buf)); });
+  ipcMain.on('meeting:mic-level', (_e, lvl) => { if (meetingController) meetingController.onMicLevel(lvl); });
+  ipcMain.handle('meetings:list', () => (meetingStore ? meetingStore.list() : []));
+  ipcMain.handle('meetings:get', (_e, id) => (meetingStore ? meetingStore.get(id) : null));
+  ipcMain.handle('meetings:delete', (_e, id) => (meetingStore ? meetingStore.remove(id) : false));
+  ipcMain.handle('meetings:retranscribe', (_e, id) => (meetingController ? meetingController.retranscribe(id) : false));
+  ipcMain.handle('meetings:regenerateSummary', (_e, id) => (meetingController ? meetingController.regenerateSummary(id) : null));
+  ipcMain.handle('meetings:updateSpeakerName', (_e, id, channel, name) => (meetingStore ? meetingStore.updateSpeakerName(id, channel, name) : false));
+  ipcMain.handle('meetings:toggleTodo', (_e, id, idx) => (meetingStore ? meetingStore.toggleTodo(id, idx) : false));
+
   // Settings
   ipcMain.handle('settings:get', () => {
     const s = getStore();
@@ -2038,6 +2137,7 @@ function setupIpcHandlers() {
       hideDock: s.get('hideDock'),
       activeProfile: s.get('activeProfile'),
       pttThreshold: s.get('pttThreshold', 350),
+      meetingHotkey: s.get('meetingHotkey', 'Command+Shift+X'),
     };
   });
 
@@ -2052,6 +2152,11 @@ function setupIpcHandlers() {
 
     if (settings.shortcut !== undefined && settings.shortcut !== s.get('shortcut')) {
       s.set('shortcut', settings.shortcut);
+      registerHotkey();
+    }
+
+    if (settings.meetingHotkey !== undefined && settings.meetingHotkey !== s.get('meetingHotkey')) {
+      s.set('meetingHotkey', settings.meetingHotkey);
       registerHotkey();
     }
 
@@ -2356,6 +2461,22 @@ app.whenReady().then(() => {
   setupIpcHandlers();
   setupTray();
   createRecordingWindow();
+
+  // Meeting-Recorder initialisieren (vor registerHotkey, damit der Hotkey-Callback ihn findet)
+  meetingStore = createMeetingStore({
+    baseDir: path.join(app.getPath('userData'), 'meetings'),
+    store: getStore(),
+  });
+  meetingController = createMeetingController({
+    store: getStore(),
+    meetingStore,
+    audioTee: audioTeeManager,
+    getOverlayWindow: () => createMeetingOverlayWindow(),
+    getMainWindow: () => mainWindow,
+    fetchImpl: (...args) => globalThis.fetch(...args),
+    excludePid: process.pid,
+  });
+
   registerHotkey();
   updateAutoLaunch();
 
@@ -2394,6 +2515,10 @@ app.whenReady().then(() => {
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   globeKeyManager.stop();
+  audioTeeManager.stop();
+  if (meetingController && meetingController.isActive()) {
+    Promise.resolve(meetingController.stop()).catch(() => {});
+  }
   stopUioHook();
 });
 app.on('window-all-closed', (e) => { e.preventDefault(); });
