@@ -2157,6 +2157,7 @@ function setupIpcHandlers() {
   ipcMain.handle('meetings:retranscribe', (_e, id) => (meetingController ? meetingController.retranscribe(id) : false));
   ipcMain.handle('meetings:regenerateSummary', (_e, id) => (meetingController ? meetingController.regenerateSummary(id) : null));
   ipcMain.handle('meetings:updateSpeakerName', (_e, id, channel, name) => (meetingStore ? meetingStore.updateSpeakerName(id, channel, name) : false));
+  ipcMain.handle('meetings:renameSpeaker', (_e, id, fromSpeaker, toName) => (meetingStore ? meetingStore.renameSpeaker(id, fromSpeaker, toName) : false));
   ipcMain.handle('meetings:toggleTodo', (_e, id, idx) => (meetingStore ? meetingStore.toggleTodo(id, idx) : false));
 
   // Settings

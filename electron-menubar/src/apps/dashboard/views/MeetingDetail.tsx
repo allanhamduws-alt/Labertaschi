@@ -18,8 +18,7 @@ export function MeetingDetail({ id, onBack }: MeetingDetailProps) {
   const [loading, setLoading] = useState(true);
   const [regenerating, setRegenerating] = useState(false);
   const [retranscribing, setRetranscribing] = useState(false);
-  const [micName, setMicName] = useState('');
-  const [systemName, setSystemName] = useState('');
+  const [speakerNames, setSpeakerNames] = useState<Record<string, string>>({});
   const [todos, setTodos] = useState<MeetingTodo[]>([]);
 
   const load = async () => {
@@ -28,8 +27,7 @@ export function MeetingDetail({ id, onBack }: MeetingDetailProps) {
       const data = await window.electronAPI.getMeeting(id);
       setMeeting(data);
       setTodos(data?.summary?.todos ?? []);
-      setMicName('');
-      setSystemName('');
+      setSpeakerNames({});
     } finally {
       setLoading(false);
     }
@@ -66,8 +64,9 @@ export function MeetingDetail({ id, onBack }: MeetingDetailProps) {
     }
   };
 
-  const handleUpdateSpeakerName = async (channel: 'mic' | 'system', name: string) => {
-    await window.electronAPI.updateSpeakerName(id, channel, name);
+  const handleRenameSpeaker = async (from: string, to: string) => {
+    if (!to) return;
+    await window.electronAPI.renameSpeaker(id, from, to);
     await load();
   };
 
@@ -239,47 +238,41 @@ export function MeetingDetail({ id, onBack }: MeetingDetailProps) {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Speaker name inputs */}
-          <div className="flex gap-4 p-3 bg-muted/40 rounded-lg">
-            <div className="flex-1">
-              <Label className="text-xs text-muted-foreground mb-1 block">Mikrofon-Sprecher (mic)</Label>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Name eingeben..."
-                  value={micName}
-                  onChange={(e) => setMicName(e.target.value)}
-                  className="h-8 text-sm"
-                />
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleUpdateSpeakerName('mic', micName)}
-                  disabled={!micName}
-                >
-                  OK
-                </Button>
+          {/* Sprecher umbenennen / zusammenführen (gleicher Name = Merge) */}
+          {(() => {
+            const uniq = Array.from(new Set(transcript.segments.map((s) => s.speaker)));
+            if (uniq.length === 0) return null;
+            return (
+              <div className="p-3 bg-muted/40 rounded-lg space-y-2">
+                <Label className="text-xs text-muted-foreground block">
+                  Sprecher umbenennen — gleicher Name führt zwei Sprecher zusammen
+                </Label>
+                <div className="grid grid-cols-2 gap-2">
+                  {uniq.map((sp) => (
+                    <div key={sp} className="flex items-center gap-2">
+                      <span className={cn('text-xs w-24 shrink-0 truncate', speakerClass(sp))}>
+                        {speakerLabel(sp)}
+                      </span>
+                      <Input
+                        placeholder="Neuer Name…"
+                        value={speakerNames[sp] ?? ''}
+                        onChange={(e) => setSpeakerNames((p) => ({ ...p, [sp]: e.target.value }))}
+                        className="h-8 text-sm"
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleRenameSpeaker(sp, speakerNames[sp] ?? '')}
+                        disabled={!speakerNames[sp]}
+                      >
+                        OK
+                      </Button>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-            <div className="flex-1">
-              <Label className="text-xs text-muted-foreground mb-1 block">System-Sprecher (system)</Label>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Name eingeben..."
-                  value={systemName}
-                  onChange={(e) => setSystemName(e.target.value)}
-                  className="h-8 text-sm"
-                />
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleUpdateSpeakerName('system', systemName)}
-                  disabled={!systemName}
-                >
-                  OK
-                </Button>
-              </div>
-            </div>
-          </div>
+            );
+          })()}
 
           {/* Segments */}
           <ScrollArea className="h-72">

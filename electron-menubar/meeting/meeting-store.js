@@ -204,6 +204,32 @@ function createMeetingStore({ baseDir, store }) {
   }
 
   /**
+   * renameSpeaker(id, fromSpeaker: string, toName: string) → boolean
+   * Benennt EINEN konkreten Sprecher-Label um (z.B. 'Sprecher 1' → 'Max').
+   * Zwei Labels auf denselben Namen setzen = zusammenführen (Merge).
+   * Aktualisiert speakerCount im Index. Liefert false, wenn das Label nicht vorkommt.
+   */
+  function renameSpeaker(id, fromSpeaker, toName) {
+    const transcript = loadTranscript(id);
+    if (!transcript || !Array.isArray(transcript.segments)) return false;
+
+    let changed = false;
+    transcript.segments = transcript.segments.map((seg) => {
+      if (seg.speaker === fromSpeaker) {
+        changed = true;
+        return { ...seg, speaker: toName };
+      }
+      return seg;
+    });
+    if (!changed) return false;
+
+    saveTranscript(id, transcript);
+    const speakerCount = new Set(transcript.segments.map((s) => s.speaker)).size || 1;
+    finalizeIndex(id, { speakerCount });
+    return true;
+  }
+
+  /**
    * toggleTodo(id, idx: number) → boolean
    * Schaltet summary.todos[idx].erledigt um.
    */
@@ -236,6 +262,7 @@ function createMeetingStore({ baseDir, store }) {
     get,
     remove,
     updateSpeakerName,
+    renameSpeaker,
     toggleTodo,
   };
 }

@@ -74,6 +74,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   retranscribeMeeting: (id) => ipcRenderer.invoke('meetings:retranscribe', id),
   regenerateSummary: (id) => ipcRenderer.invoke('meetings:regenerateSummary', id),
   updateSpeakerName: (id, channel, name) => ipcRenderer.invoke('meetings:updateSpeakerName', id, channel, name),
+  renameSpeaker: (id, fromSpeaker, toName) => ipcRenderer.invoke('meetings:renameSpeaker', id, fromSpeaker, toName),
   toggleMeetingTodo: (id, idx) => ipcRenderer.invoke('meetings:toggleTodo', id, idx),
   onMeetingStatus: (cb) => ipcRenderer.on('meeting:status', (_e, s) => cb(s)),
   onMeetingTranscriptChunk: (cb) => ipcRenderer.on('meeting:transcript-chunk', (_e, segs) => cb(segs)),

@@ -182,6 +182,7 @@ export interface ElectronAPI {
   retranscribeMeeting: (id: string) => Promise<boolean>;
   regenerateSummary: (id: string) => Promise<MeetingSummary | null>;
   updateSpeakerName: (id: string, channel: 'mic' | 'system', name: string) => Promise<boolean>;
+  renameSpeaker: (id: string, fromSpeaker: string, toName: string) => Promise<boolean>;
   toggleMeetingTodo: (id: string, idx: number) => Promise<boolean>;
   onMeetingStatus: (cb: (s: { color: 'green' | 'yellow' | 'red'; reason: string; durationMs: number; micLevel: number; systemLevel: number }) => void) => void;
   onMeetingTranscriptChunk: (cb: (segs: MeetingSegment[]) => void) => void;
