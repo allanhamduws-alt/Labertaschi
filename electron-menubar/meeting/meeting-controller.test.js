@@ -136,6 +136,36 @@ describe('MeetingController (Integration mit Fakes)', () => {
     expect(ctl.getStatus().diarization).toBe(false);
   });
 
+  it('Modus inperson diarisiert den MIKROFON-Kanal statt des System-Kanals', async () => {
+    const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'paply-ctl6-'));
+    const store = fakeStore({ diarizationEnabled: true, deepgramApiKey: 'dk' });
+    const meetingStore = createMeetingStore({ baseDir, store });
+    const diarizeCalls = [];
+    const ctl = createMeetingController({
+      store, meetingStore, audioTee: new FakeTee(),
+      getOverlayWindow: () => null, getMainWindow: () => null,
+      fetchImpl: fakeFetch, windowSeconds: 1, sampleRate: 100,
+      diarize: async (audioPath) => {
+        diarizeCalls.push(audioPath);
+        return [{ tStart: 0, tEnd: 1, speaker: 'Sprecher 1', channel: 'system', text: 'Vor Ort' }];
+      },
+      now: () => 1700000000000,
+    });
+
+    const { id } = ctl.start();
+    expect(ctl.getStatus().meetingMode).toBe('call');
+    ctl.setSessionMeetingMode('inperson');
+    expect(ctl.getStatus().meetingMode).toBe('inperson');
+    ctl.onMicPcm(Buffer.alloc(200)); // ein Mikro-Fenster → audio_mic.wav entsteht
+    await ctl.stop();
+
+    // Deepgram wurde auf die MIKROFON-Datei angewendet
+    expect(diarizeCalls.some((p) => p.endsWith('audio_mic.wav'))).toBe(true);
+    // und das Sprecher-Label landet auf einem mic-Kanal-Segment
+    const segs = meetingStore.get(id).transcript.segments;
+    expect(segs.some((s) => s.channel === 'mic' && s.speaker === 'Sprecher 1')).toBe(true);
+  });
+
   it('isActive spiegelt den Zustand', () => {
     const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'paply-ctl2-'));
     const store = fakeStore();

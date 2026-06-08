@@ -61,6 +61,7 @@ export function MeetingOverlay() {
   const [liveSegments, setLiveSegments] = useState<MeetingSegment[]>([]);
   const [diarization, setDiarization] = useState(false);
   const [hasDeepgramKey, setHasDeepgramKey] = useState(false);
+  const [meetingMode, setMeetingMode] = useState<'call' | 'inperson'>('call');
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
@@ -214,7 +215,7 @@ export function MeetingOverlay() {
       setMicLevel(0);
       setSystemLevel(0);
       setLiveSegments([]);
-      if (d) { setDiarization(!!d.diarization); setHasDeepgramKey(!!d.hasDeepgramKey); }
+      if (d) { setDiarization(!!d.diarization); setHasDeepgramKey(!!d.hasDeepgramKey); if (d.meetingMode) setMeetingMode(d.meetingMode); }
       startCapture();
       startSystemCapture();
     });
@@ -248,6 +249,7 @@ export function MeetingOverlay() {
         setActive(true);
         setDiarization(!!st.diarization);
         setHasDeepgramKey(!!st.hasDeepgramKey);
+        if (st.meetingMode) setMeetingMode(st.meetingMode);
         startCapture();
         startSystemCapture();
       }
@@ -345,27 +347,54 @@ export function MeetingOverlay() {
           className="w-[340px] max-h-[180px] overflow-y-auto px-2 py-1.5 rounded-xl backdrop-blur border bg-card/95 border-border/50 shadow-md"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
-          {/* Pro-Session-Schalter: Sprecher-Trennung (Deepgram). Bei 1:1-Calls aus = keine Deepgram-Kosten. */}
-          <div className="flex items-center justify-between mb-1.5 pb-1.5 border-b border-border/40">
-            <span className="text-[11px] text-muted-foreground">Sprecher-Trennung</span>
-            <button
-              disabled={!hasDeepgramKey}
-              onClick={(e) => {
-                e.stopPropagation();
-                window.electronAPI.setMeetingDiarization(!diarization).then((v) => setDiarization(!!v));
-              }}
-              className={cn(
-                'text-[10px] px-1.5 py-0.5 rounded-full border transition-colors',
-                !hasDeepgramKey
-                  ? 'opacity-40 cursor-not-allowed border-border/40 text-muted-foreground'
-                  : diarization
-                    ? 'bg-primary/15 border-primary/40 text-primary'
-                    : 'border-border/50 text-muted-foreground hover:text-foreground'
-              )}
-              title={hasDeepgramKey ? 'Mehrere Gegenstellen-Sprecher per Deepgram trennen' : 'Deepgram-Key fehlt (in den Einstellungen hinterlegen)'}
-            >
-              {diarization ? 'an' : 'aus'}
-            </button>
+          {/* Pro-Session-Schalter (während der Aufnahme umschaltbar) */}
+          <div className="space-y-1 mb-1.5 pb-1.5 border-b border-border/40">
+            {/* Deepgram an/aus — bei 1:1 aus = keine Deepgram-Kosten */}
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-muted-foreground">Deepgram-Trennung</span>
+              <button
+                disabled={!hasDeepgramKey}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  window.electronAPI.setMeetingDiarization(!diarization).then((v) => setDiarization(!!v));
+                }}
+                className={cn(
+                  'text-[10px] px-1.5 py-0.5 rounded-full border transition-colors',
+                  !hasDeepgramKey
+                    ? 'opacity-40 cursor-not-allowed border-border/40 text-muted-foreground'
+                    : diarization
+                      ? 'bg-primary/15 border-primary/40 text-primary'
+                      : 'border-border/50 text-muted-foreground hover:text-foreground'
+                )}
+                title={hasDeepgramKey ? 'Sprecher per Deepgram trennen (an/aus)' : 'Deepgram-Key fehlt (in den Einstellungen hinterlegen)'}
+              >
+                {diarization ? 'an' : 'aus'}
+              </button>
+            </div>
+            {/* Modus: Call (Gegenstelle/System trennen) ↔ Vor-Ort (Mikrofon trennen) */}
+            <div className="flex items-center justify-between">
+              <span className={cn('text-[11px]', diarization ? 'text-muted-foreground' : 'text-muted-foreground/40')}>Modus</span>
+              <div className="flex rounded-full border border-border/50 overflow-hidden">
+                {(['call', 'inperson'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    disabled={!diarization || !hasDeepgramKey}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      window.electronAPI.setMeetingMode(mode).then((m) => setMeetingMode(m || mode));
+                    }}
+                    className={cn(
+                      'text-[10px] px-1.5 py-0.5 transition-colors',
+                      (!diarization || !hasDeepgramKey) && 'opacity-40 cursor-not-allowed',
+                      meetingMode === mode ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground'
+                    )}
+                    title={mode === 'call' ? 'Gegenstelle (System-Audio) trennen' : 'Vor-Ort: Mikrofon in mehrere Sprecher trennen'}
+                  >
+                    {mode === 'call' ? 'Call' : 'Vor-Ort'}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
           {liveSegments.length === 0 ? (
             <p className="text-[11px] text-muted-foreground">Transkript erscheint, sobald gesprochen wird …</p>

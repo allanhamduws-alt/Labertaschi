@@ -65,6 +65,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendMicLevel: (lvl) => ipcRenderer.send('meeting:mic-level', lvl),
   sendSystemPcm: (buf) => ipcRenderer.send('meeting:system-pcm', buf),
   setMeetingDiarization: (enabled) => ipcRenderer.invoke('meeting:set-diarization', enabled),
+  setMeetingMode: (mode) => ipcRenderer.invoke('meeting:set-meeting-mode', mode),
   getDeepgramUsage: () => ipcRenderer.invoke('deepgram:usage'),
   resetDeepgramUsage: () => ipcRenderer.invoke('deepgram:usage-reset'),
   setOverlayExpanded: (expanded) => ipcRenderer.send('meeting:overlay-expand', expanded),

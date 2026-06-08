@@ -2148,6 +2148,7 @@ function setupIpcHandlers() {
   ipcMain.on('meeting:system-pcm', (_e, buf) => { windowsAudioManager.onSystemPcm(Buffer.from(buf)); });
   // Pro-Session-Override der Sprecher-Trennung (Overlay-Toggle), ändert nicht den globalen Default.
   ipcMain.handle('meeting:set-diarization', (_e, enabled) => (meetingController ? meetingController.setSessionDiarization(enabled) : false));
+  ipcMain.handle('meeting:set-meeting-mode', (_e, mode) => (meetingController ? meetingController.setSessionMeetingMode(mode) : false));
   // Lokaler Deepgram-Verbrauchszähler
   ipcMain.handle('deepgram:usage', () => { try { return getStore().get('deepgramUsage') || emptyUsage(); } catch { return emptyUsage(); } });
   ipcMain.handle('deepgram:usage-reset', () => { try { getStore().set('deepgramUsage', emptyUsage()); return true; } catch { return false; } });

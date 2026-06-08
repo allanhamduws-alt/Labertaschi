@@ -89,6 +89,9 @@ function createMeetingController(deps) {
   // Pro-Session-Entscheidung zur Sprecher-Trennung (Snapshot des globalen Defaults
   // beim Start, per Overlay-Toggle für DIESE Aufnahme überschreibbar).
   let sessionDiarization = false;
+  // Meeting-Modus: 'call' = System-Kanal trennen (Gegenstelle), Mikro = "Ich";
+  // 'inperson' = Mikrofon-Kanal trennen (mehrere Leute vor Ort an einem Mikro).
+  let sessionMeetingMode = 'call';
 
   // Finale Audiodateien werden beim Stop aus den Chunk-Dateien gestreamt (RAM-schonend).
 
@@ -169,6 +172,7 @@ function createMeetingController(deps) {
     micLevel = 0; systemLevel = 0; micWriteOk = true; diskError = false; permissionDenied = false; systemAudioError = null; gotSystemPcm = false;
     lastSystemPcmMs = startedAtMs; // Stille-Erkennung erst nach Schwelle
     sessionDiarization = !!store.get('diarizationEnabled');
+    sessionMeetingMode = 'call';
 
     queue = new TranscriptionQueue({
       apiKey: store.get('groqApiKey'),
@@ -208,6 +212,7 @@ function createMeetingController(deps) {
     _emit('meeting:started', {
       id: sessionId,
       diarization: sessionDiarization,
+      meetingMode: sessionMeetingMode,
       hasDeepgramKey: !!store.get('deepgramApiKey'),
     });
     healthTimer = setInterval(_emitHealth, 1000);
@@ -258,22 +263,25 @@ function createMeetingController(deps) {
         }
       } catch { /* Audio-Finalisierung fehlgeschlagen — Chunk-Dateien bleiben als Fallback */ }
 
-      // Optionale Sprecher-Diarisierung des System-Kanals (Deepgram, Phase 2):
-      // über die KOMPLETTE audio_system.wav -> konsistente Sprecher-IDs übers ganze Meeting.
+      // Optionale Sprecher-Diarisierung über Deepgram (Phase 2), über die KOMPLETTE
+      // Kanal-Audiodatei -> konsistente Sprecher-IDs übers ganze Meeting.
+      // Modus 'call' (Default): System-Kanal trennen (Gegenstelle), Mikro bleibt "Ich".
+      // Modus 'inperson': Mikrofon-Kanal trennen (mehrere Leute vor Ort an EINEM Mikro).
+      let micForMerge = micSegs;
       let sysForMerge = sysSegs;
       let diarizationInfo = { diarizationUsed: false, diarizationSeconds: 0, diarizationCostUsd: 0, diarizationSpeakers: 0 };
       const deepgramKey = store.get('deepgramApiKey');
-      // sessionDiarization (Snapshot/Overlay-Override) statt dem globalen Default —
-      // so kann der Nutzer Deepgram pro 1:1-Gespräch weglassen.
       if (sessionDiarization && deepgramKey) {
+        // Vor-Ort → Mikrofon trennen, sonst → System (Gegenstelle).
+        const targetChannel = sessionMeetingMode === 'inperson' ? 'mic' : 'system';
         try {
-          const sysAudioPath = nodePath.join(meetingDir, 'audio_system.wav');
-          if (fs.existsSync(sysAudioPath)) {
-            const diarized = await diarize(sysAudioPath, { apiKey: deepgramKey, language, fetchImpl });
+          const targetPath = nodePath.join(meetingDir, `audio_${targetChannel}.wav`);
+          if (fs.existsSync(targetPath)) {
+            const diarized = await diarize(targetPath, { apiKey: deepgramKey, language, fetchImpl });
             if (diarized && diarized.length) {
-              sysForMerge = diarized;
+              if (targetChannel === 'mic') micForMerge = diarized; else sysForMerge = diarized;
               // Usage zuverlässig aus der gesendeten WAV-Größe ableiten (lokaler Zähler).
-              const seconds = wavDurationSeconds(fs.statSync(sysAudioPath).size, { sampleRate, channels: 1 });
+              const seconds = wavDurationSeconds(fs.statSync(targetPath).size, { sampleRate, channels: 1 });
               const costUsd = estimateDeepgramCostUsd(seconds, { multilingual: language !== 'en', diarize: true });
               const speakers = new Set(diarized.map((s) => s.speaker)).size;
               diarizationInfo = {
@@ -292,10 +300,10 @@ function createMeetingController(deps) {
               }
             }
           }
-        } catch { /* Diarisierung fehlgeschlagen — Groq-Transkript ('Gegenstelle') bleibt erhalten */ }
+        } catch { /* Diarisierung fehlgeschlagen — Groq-Transkript bleibt erhalten */ }
       }
 
-      const merged = mergeSegments(micSegs, sysForMerge);
+      const merged = mergeSegments(micForMerge, sysForMerge);
       try { meetingStore.saveTranscript(id, { segments: merged, language }); } catch { /* Disk-Fehler */ }
 
       const durationMs = now() - startedAtMs;
@@ -341,6 +349,7 @@ function createMeetingController(deps) {
       active,
       id: sessionId,
       diarization: active ? sessionDiarization : !!store.get('diarizationEnabled'),
+      meetingMode: sessionMeetingMode,
       hasDeepgramKey: !!store.get('deepgramApiKey'),
     };
   }
@@ -350,6 +359,13 @@ function createMeetingController(deps) {
   function setSessionDiarization(enabled) {
     sessionDiarization = !!enabled;
     return sessionDiarization;
+  }
+
+  // Pro-Session-Meeting-Modus (Overlay): 'call' (System trennen) oder 'inperson'
+  // (Mikrofon trennen). Greift beim Stop, ändert keinen globalen Default.
+  function setSessionMeetingMode(mode) {
+    sessionMeetingMode = mode === 'inperson' ? 'inperson' : 'call';
+    return sessionMeetingMode;
   }
 
   async function regenerateSummary(id) {
@@ -402,7 +418,7 @@ function createMeetingController(deps) {
     return true;
   }
 
-  return { start, stop, isActive, getStatus, setSessionDiarization, onMicPcm, onMicLevel, regenerateSummary, retranscribe };
+  return { start, stop, isActive, getStatus, setSessionDiarization, setSessionMeetingMode, onMicPcm, onMicLevel, regenerateSummary, retranscribe };
 }
 
 module.exports = { createMeetingController, transcriptToText, speakerLabel };
