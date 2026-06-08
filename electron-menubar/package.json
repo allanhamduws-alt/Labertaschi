@@ -16,7 +16,8 @@
     "generate:ico": "node scripts/generate-ico.js",
     "start": "npm run vite:build && electron .",
     "compile:globe": "node scripts/build-globe-listener.js",
-    "prebuild": "npm run compile:globe",
+    "compile:audio-tee": "node scripts/build-audio-tee.js",
+    "prebuild": "npm run compile:globe && npm run compile:audio-tee",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "echo \"no lint configured\""
@@ -77,6 +78,10 @@
       "gatekeeperAssess": false,
       "entitlements": "entitlements.mac.plist",
       "entitlementsInherit": "entitlements.mac.plist",
+      "extendInfo": {
+        "NSAudioCaptureUsageDescription": "Paply nimmt das System-Audio auf, um Meetings und Telefonate zu transkribieren.",
+        "NSMicrophoneUsageDescription": "Paply nimmt dein Mikrofon auf, um Gesprochenes zu transkribieren."
+      },
       "target": [
         {
           "target": "dmg",
@@ -100,6 +105,10 @@
           "filter": [
             "!*.swift"
           ]
+        },
+        {
+          "from": "resources/bin/audiotee",
+          "to": "bin/audiotee"
         }
       ]
     },
@@ -133,6 +142,10 @@
       "electron-main.js",
       "preload.js",
       "globe-key-manager.js",
+      "audio-tee-manager.js",
+      "audio/**/*",
+      "meeting/**/*",
+      "!**/*.test.js",
       "renderer/**/*",
       "icon.png",
       "icon.ico",

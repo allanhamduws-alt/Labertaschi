@@ -1,0 +1,2 @@
+# AudioTee-Binary wird via npm run compile:audio-tee aus node_modules bereitgestellt
+resources/bin/audiotee
