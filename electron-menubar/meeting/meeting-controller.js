@@ -6,7 +6,7 @@
 'use strict';
 
 const fs = require('node:fs');
-const { encodeWav, concatWav } = require('../audio/wav-encoder');
+const { encodeWav, concatWavFiles } = require('../audio/wav-encoder');
 const { rms } = require('../audio/pcm-utils');
 const { ChunkAccumulator } = require('./chunk-accumulator');
 const { TranscriptionQueue } = require('./transcription-queue');
@@ -65,9 +65,7 @@ function createMeetingController(deps) {
   let diskError = false;
   let permissionDenied = false;
 
-  // PCM-Sammlung für die finalen Audiodateien
-  let micPcm = [];
-  let sysPcm = [];
+  // Finale Audiodateien werden beim Stop aus den Chunk-Dateien gestreamt (RAM-schonend).
 
   // AudioTee-Listener-Referenzen (zum Entfernen)
   let onTeePcm = null;
@@ -95,9 +93,8 @@ function createMeetingController(deps) {
       diskError = true;
       micWriteOk = false;
     }
-    // 2) PCM für die finale zusammengefügte Datei sammeln
-    (channel === 'mic' ? micPcm : sysPcm).push(Buffer.from(pcm));
-    // 3) Zur Transkription einreihen
+    // 2) Zur Transkription einreihen (die finale Audiodatei entsteht beim Stop
+    //    aus den Chunk-Dateien — kein RAM-Sammeln, beliebige Meeting-Länge)
     queue.enqueue({ channel, wavBuffer: wav, tOffset });
   }
 
@@ -137,7 +134,7 @@ function createMeetingController(deps) {
     startedAtMs = now();
     sessionId = meetingStore.create(new Date(startedAtMs).toISOString());
 
-    micSegs = []; sysSegs = []; micPcm = []; sysPcm = [];
+    micSegs = []; sysSegs = [];
     micLevel = 0; systemLevel = 0; micWriteOk = true; diskError = false; permissionDenied = false;
     lastSystemPcmMs = startedAtMs; // Stille-Erkennung erst nach Schwelle
 
@@ -200,14 +197,20 @@ function createMeetingController(deps) {
       await queue.idle();
 
       const language = store.get('language');
-      // Finale zusammengefügte Audiodateien aus den gesammelten PCM-Chunks.
-      // meetingDir = übergeordnetes Verzeichnis von chunks/ (zweimal dirname).
+      // Finale Audiodateien aus den crash-sicher geschriebenen Chunk-Dateien
+      // zusammenfügen (streaming, konstanter RAM — auch bei mehrstündigen Meetings).
       const nodePath = require('node:path');
-      const meetingDir = nodePath.dirname(nodePath.dirname(meetingStore.chunkPath(id, 'mic', 0)));
+      const chunksDir = nodePath.dirname(meetingStore.chunkPath(id, 'mic', 0));
+      const meetingDir = nodePath.dirname(chunksDir);
       try {
-        if (micPcm.length) fs.writeFileSync(nodePath.join(meetingDir, 'audio_mic.wav'), concatWav(micPcm, { sampleRate, channels: 1 }));
-        if (sysPcm.length) fs.writeFileSync(nodePath.join(meetingDir, 'audio_system.wav'), concatWav(sysPcm, { sampleRate, channels: 1 }));
-      } catch { /* Audio-Finalisierung fehlgeschlagen — Chunks bleiben als Fallback */ }
+        for (const ch of ['mic', 'system']) {
+          const files = fs.readdirSync(chunksDir)
+            .filter((f) => f.startsWith(ch + '_') && f.endsWith('.wav'))
+            .sort()
+            .map((f) => nodePath.join(chunksDir, f));
+          if (files.length) concatWavFiles(files, nodePath.join(meetingDir, `audio_${ch}.wav`), { sampleRate, channels: 1 });
+        }
+      } catch { /* Audio-Finalisierung fehlgeschlagen — Chunk-Dateien bleiben als Fallback */ }
 
       const merged = mergeSegments(micSegs, sysSegs);
       try { meetingStore.saveTranscript(id, { segments: merged, language }); } catch { /* Disk-Fehler */ }
