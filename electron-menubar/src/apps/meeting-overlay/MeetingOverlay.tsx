@@ -277,13 +277,9 @@ export function MeetingOverlay() {
     <div className="flex flex-col items-end justify-start h-screen p-1 gap-1">
       {/* Kleines Pill — Klick klappt das Transkript auf/zu */}
       <div
-        className={cn(
-          'flex items-center gap-1.5 px-2 py-1 rounded-xl backdrop-blur border shadow-md cursor-pointer select-none',
-          'bg-card/95 border-border/50 transition-all duration-200',
-          health === 'red' && 'border-red-500/50'
-        )}
+        className="flex items-center gap-1.5 px-2 py-1 rounded-xl border shadow-md cursor-pointer select-none transition-all duration-200"
         onClick={() => setExpanded((e) => !e)}
-        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        style={{ WebkitAppRegion: 'no-drag', backgroundColor: '#ffffff', borderColor: health === 'red' ? '#ef4444' : '#e2e8f0' } as React.CSSProperties}
         title={expanded ? 'Transkript ausblenden' : 'Transkript anzeigen'}
       >
         {/* Mic icon */}
@@ -334,8 +330,8 @@ export function MeetingOverlay() {
       {/* Rot: Klartext-Grund (z.B. fehlende Berechtigung) */}
       {health === 'red' && reason && (
         <div
-          className="px-2 py-1 rounded-lg bg-card/95 border border-red-500/50 text-[10px] text-red-400 max-w-[340px]"
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          className="px-2 py-1 rounded-lg border border-red-500/50 text-[10px] text-red-500 max-w-[340px]"
+          style={{ WebkitAppRegion: 'no-drag', backgroundColor: '#ffffff' } as React.CSSProperties}
         >
           {reason}
         </div>
@@ -344,8 +340,8 @@ export function MeetingOverlay() {
       {/* Ausgeklappt: mitlaufendes Transkript (R5) */}
       {expanded && (
         <div
-          className="w-[340px] max-h-[180px] overflow-y-auto px-2 py-1.5 rounded-xl backdrop-blur border bg-card/95 border-border/50 shadow-md"
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          className="w-[340px] max-h-[180px] overflow-y-auto px-2 py-1.5 rounded-xl border shadow-md"
+          style={{ WebkitAppRegion: 'no-drag', backgroundColor: '#ffffff', borderColor: '#e2e8f0' } as React.CSSProperties}
         >
           {/* Pro-Session-Schalter (während der Aufnahme umschaltbar) */}
           <div className="space-y-2 mb-2 pb-2 border-b border-border/50">
