@@ -17,6 +17,8 @@
     "start": "npm run vite:build && electron .",
     "compile:globe": "node scripts/build-globe-listener.js",
     "prebuild": "npm run compile:globe",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "echo \"no lint configured\""
   },
   "keywords": [
@@ -30,6 +32,7 @@
   "author": "paply",
   "license": "MIT",
   "dependencies": {
+    "audiotee": "^0.0.7",
     "auto-launch": "^5.0.6",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -56,7 +59,8 @@
     "tailwindcss": "^3.4.17",
     "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.9.3",
-    "vite": "^7.3.0"
+    "vite": "^7.3.0",
+    "vitest": "^4.1.8"
   },
   "build": {
     "appId": "com.paply.menubar",
@@ -93,7 +97,9 @@
         {
           "from": "resources/bin/macos-globe-listener",
           "to": "bin/macos-globe-listener",
-          "filter": ["!*.swift"]
+          "filter": [
+            "!*.swift"
+          ]
         }
       ]
     },

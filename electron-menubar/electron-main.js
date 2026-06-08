@@ -104,6 +104,10 @@ function getStore() {
         ],
         // Favorites
         favorites: [],
+        // Meeting-Recorder
+        meetings: [],
+        meetingHotkey: 'Command+Shift+X',
+        meetingSummaryModel: 'llama-3.3-70b-versatile',
       },
     });
   }
