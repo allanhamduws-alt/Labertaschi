@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { floatTo16BitPCM, rms, downsample } from './pcm-utils.js';
+import { floatTo16BitPCM, rms, downsample, maxFrameRms } from './pcm-utils.js';
 
 describe('pcm-utils', () => {
   it('floatTo16BitPCM klemmt und skaliert', () => {
@@ -17,5 +17,16 @@ describe('pcm-utils', () => {
   it('downsample halbiert die Länge bei 2:1', () => {
     const out = downsample(new Float32Array([0, 0.5, 1, 0.5]), 32000, 16000);
     expect(out.length).toBe(2);
+  });
+  it('maxFrameRms: Stille ergibt 0', () => {
+    expect(maxFrameRms(floatTo16BitPCM(new Float32Array(16000)), { sampleRate: 16000 })).toBeCloseTo(0, 5);
+  });
+  it('maxFrameRms findet kurzen lauten Burst, den der Gesamt-RMS verschluckt', () => {
+    const a = new Float32Array(16000); // 1 s Stille
+    for (let i = 0; i < 1600; i++) a[i] = i % 2 ? 1 : -1; // 100 ms Vollausschlag
+    const buf = floatTo16BitPCM(a);
+    const peak = maxFrameRms(buf, { sampleRate: 16000, frameMs: 100 });
+    expect(peak).toBeCloseTo(1, 1);             // Burst-Frame erkannt
+    expect(peak).toBeGreaterThan(rms(buf) * 2); // deutlich höher als der verdünnte Gesamt-RMS
   });
 });

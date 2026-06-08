@@ -79,4 +79,37 @@ async function diarizeWithDeepgram(audioPath, { apiKey, language = 'de', fetchIm
   return parseDeepgram(json);
 }
 
-module.exports = { parseDeepgram, diarizeWithDeepgram, DEEPGRAM_URL };
+/**
+ * Klebt Deepgram-Sprecherlabels per ZEITÜBERLAPPUNG auf bereits transkribierte
+ * Segmente (z.B. Groq Whisper). Der TEXT bleibt von Groq (gute Qualität); Deepgram
+ * liefert nur „wer hat wann gesprochen". Für jedes Text-Segment wird der Deepgram-Turn
+ * mit der größten zeitlichen Überlappung gewählt. Reine Funktion (testbar).
+ * @param {{tStart:number,tEnd:number,speaker?:string,text:string,channel?:string}[]} textSegments
+ * @param {{tStart:number,tEnd:number,speaker:string}[]} turns  Deepgram-Sprecher-Turns
+ * @returns {object[]} Kopie der Text-Segmente mit zugewiesenem speaker
+ */
+function assignSpeakers(textSegments = [], turns = []) {
+  if (!Array.isArray(turns) || turns.length === 0) return textSegments.map((s) => ({ ...s }));
+  return textSegments.map((seg) => {
+    let best = null;
+    let bestOverlap = 0;
+    for (const t of turns) {
+      const overlap = Math.max(0, Math.min(seg.tEnd, t.tEnd) - Math.max(seg.tStart, t.tStart));
+      if (overlap > bestOverlap) { bestOverlap = overlap; best = t; }
+    }
+    if (!best) {
+      // Keine Überlappung (Lücke in der Diarisierung) -> zeitlich NÄCHSTEN Turn nehmen.
+      // Sorgt für konsistente Labels (bei 1 Sprecher wird alles dieser eine, nicht gemischt
+      // mit dem Default 'me'/'other').
+      const mid = (seg.tStart + seg.tEnd) / 2;
+      let nearest = Infinity;
+      for (const t of turns) {
+        const dist = mid < t.tStart ? t.tStart - mid : (mid > t.tEnd ? mid - t.tEnd : 0);
+        if (dist < nearest) { nearest = dist; best = t; }
+      }
+    }
+    return best ? { ...seg, speaker: best.speaker } : { ...seg };
+  });
+}
+
+module.exports = { parseDeepgram, diarizeWithDeepgram, assignSpeakers, DEEPGRAM_URL };

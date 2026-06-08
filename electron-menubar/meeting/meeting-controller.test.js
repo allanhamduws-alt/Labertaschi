@@ -17,6 +17,14 @@ class FakeTee extends EventEmitter {
   stop() { this.isRunning = false; }
 }
 
+// Nicht-stilles PCM (200 Byte = 100 Samples bei sampleRate 100), damit das Stille-Gate
+// es als echtes Signal durchlässt. Buffer.alloc(...) (Stille) würde geblockt.
+function signal(bytes = 200, amp = 8000) {
+  const b = Buffer.alloc(bytes);
+  for (let i = 0; i + 1 < bytes; i += 2) b.writeInt16LE(amp, i);
+  return b;
+}
+
 async function fakeFetch(url) {
   if (String(url).includes('/audio/transcriptions')) {
     return { ok: true, json: async () => ({ segments: [{ start: 0, end: 1, text: 'Testsatz' }] }) };
@@ -51,8 +59,8 @@ describe('MeetingController (Integration mit Fakes)', () => {
     expect(tee.isRunning).toBe(true);
 
     // Genug PCM für je genau ein 1-s-Fenster (100 samples * 2 byte = 200 byte)
-    tee.emit('pcm', Buffer.alloc(200));      // System-Audio
-    ctl.onMicPcm(Buffer.alloc(200));         // Mikrofon
+    tee.emit('pcm', signal());      // System-Audio
+    ctl.onMicPcm(signal());         // Mikrofon
 
     await ctl.stop();
 
@@ -87,7 +95,7 @@ describe('MeetingController (Integration mit Fakes)', () => {
     });
 
     const { id } = ctl.start();
-    tee.emit('pcm', Buffer.alloc(200)); // genau ein System-Fenster → audio_system.wav entsteht
+    tee.emit('pcm', signal()); // genau ein System-Fenster → audio_system.wav entsteht
     await ctl.stop();
 
     const full = meetingStore.get(id);
@@ -115,7 +123,7 @@ describe('MeetingController (Integration mit Fakes)', () => {
       now: () => 1700000000000,
     });
     const { id } = ctl.start();
-    tee.emit('pcm', Buffer.alloc(200));
+    tee.emit('pcm', signal());
     await ctl.stop();
     expect(meetingStore.get(id).index.diarizationUsed).toBe(false);
     expect(store.get('deepgramUsage')).toBeUndefined();
@@ -156,14 +164,39 @@ describe('MeetingController (Integration mit Fakes)', () => {
     expect(ctl.getStatus().meetingMode).toBe('call');
     ctl.setSessionMeetingMode('inperson');
     expect(ctl.getStatus().meetingMode).toBe('inperson');
-    ctl.onMicPcm(Buffer.alloc(200)); // ein Mikro-Fenster → audio_mic.wav entsteht
+    ctl.onMicPcm(signal()); // ein Mikro-Fenster → audio_mic.wav entsteht
     await ctl.stop();
 
     // Deepgram wurde auf die MIKROFON-Datei angewendet
     expect(diarizeCalls.some((p) => p.endsWith('audio_mic.wav'))).toBe(true);
-    // und das Sprecher-Label landet auf einem mic-Kanal-Segment
     const segs = meetingStore.get(id).transcript.segments;
-    expect(segs.some((s) => s.channel === 'mic' && s.speaker === 'Sprecher 1')).toBe(true);
+    // Deepgrams Sprecher-Label landet auf dem mic-Segment, ABER Groqs TEXT bleibt erhalten
+    expect(segs.some((s) => s.channel === 'mic' && s.speaker === 'Sprecher 1' && s.text === 'Testsatz')).toBe(true);
+    // Deepgrams eigener Text ('Vor Ort') wird NICHT übernommen
+    expect(segs.some((s) => s.text === 'Vor Ort')).toBe(false);
+  });
+
+  it('Stille-Gate: stille Chunks werden NICHT transkribiert (keine Halluzination)', async () => {
+    const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'paply-ctl7-'));
+    const store = fakeStore();
+    const meetingStore = createMeetingStore({ baseDir, store });
+    const tee = new FakeTee();
+    let transcriptionCalls = 0;
+    const countingFetch = async (url, opts) => {
+      if (String(url).includes('/audio/transcriptions')) transcriptionCalls++;
+      return fakeFetch(url, opts);
+    };
+    const ctl = createMeetingController({
+      store, meetingStore, audioTee: tee,
+      getOverlayWindow: () => null, getMainWindow: () => null,
+      fetchImpl: countingFetch, windowSeconds: 1, sampleRate: 100, now: () => 1700000000000,
+    });
+    const { id } = ctl.start();
+    tee.emit('pcm', Buffer.alloc(200));  // STILLE (alle Null) → soll NICHT transkribiert werden
+    ctl.onMicPcm(Buffer.alloc(200));     // STILLE
+    await ctl.stop();
+    expect(transcriptionCalls).toBe(0); // kein STT-Aufruf auf Stille
+    expect(meetingStore.get(id).transcript.segments.length).toBe(0); // kein "Vielen Dank"
   });
 
   it('isActive spiegelt den Zustand', () => {

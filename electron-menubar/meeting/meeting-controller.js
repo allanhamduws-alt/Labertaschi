@@ -7,13 +7,13 @@
 
 const fs = require('node:fs');
 const { encodeWav, concatWavFiles } = require('../audio/wav-encoder');
-const { rms } = require('../audio/pcm-utils');
+const { rms, maxFrameRms } = require('../audio/pcm-utils');
 const { ChunkAccumulator } = require('./chunk-accumulator');
 const { TranscriptionQueue } = require('./transcription-queue');
 const { mergeSegments } = require('./transcript-merger');
 const { evaluateHealth } = require('./health-monitor');
 const { generateMeetingSummary } = require('./summary');
-const { diarizeWithDeepgram } = require('./diarization');
+const { diarizeWithDeepgram, assignSpeakers } = require('./diarization');
 const { wavDurationSeconds, estimateDeepgramCostUsd, monthKey, accumulateUsage } = require('./deepgram-usage');
 const { compressToOpus, decodeToWav } = require('./audio-compress');
 
@@ -46,6 +46,7 @@ function createMeetingController(deps) {
     store, meetingStore, audioTee, getOverlayWindow, getMainWindow,
     fetchImpl, windowSeconds = 30, sampleRate = 16000, excludePid,
     chunkMinSeconds, chunkMaxSeconds, silenceRms,
+    speechGate = 0.0008, // Stille-Gate: tief genug, dass leise Stimmen bleiben, hoch genug für Digital-Stille
     diarize = diarizeWithDeepgram,
     now = () => Date.now(),
   } = deps;
@@ -122,9 +123,13 @@ function createMeetingController(deps) {
       diskError = true;
       micWriteOk = false;
     }
-    // 2) Zur Transkription einreihen (die finale Audiodatei entsteht beim Stop
-    //    aus den Chunk-Dateien — kein RAM-Sammeln, beliebige Meeting-Länge)
-    queue.enqueue({ channel, wavBuffer: wav, tOffset });
+    // 2) Stille-Gate: nur Chunks mit echtem Signal transkribieren. Auf reiner Stille
+    //    halluziniert Whisper Phrasen ("Vielen Dank"). Schwelle liegt deutlich unter
+    //    Stimm-Pegel, damit leise/entfernte Stimmen NICHT als Rauschen wegfallen.
+    //    Die Audiodatei (Chunk) wird trotzdem gesichert — nur die STT wird übersprungen.
+    if (maxFrameRms(pcm, { sampleRate }) >= speechGate) {
+      queue.enqueue({ channel, wavBuffer: wav, tOffset });
+    }
   }
 
   function _onSegments({ channel, segments }) {
@@ -280,7 +285,10 @@ function createMeetingController(deps) {
           if (fs.existsSync(targetPath)) {
             const diarized = await diarize(targetPath, { apiKey: deepgramKey, language, fetchImpl });
             if (diarized && diarized.length) {
-              if (targetChannel === 'mic') micForMerge = diarized; else sysForMerge = diarized;
+              // WICHTIG: Groqs TEXT behalten, nur Deepgrams SPRECHER-Labels per
+              // Zeitabgleich übernehmen (Deepgram-Transkript ist schlechter als Groq).
+              if (targetChannel === 'mic') micForMerge = assignSpeakers(micSegs, diarized);
+              else sysForMerge = assignSpeakers(sysSegs, diarized);
               // Usage zuverlässig aus der gesendeten WAV-Größe ableiten (lokaler Zähler).
               const seconds = wavDurationSeconds(fs.statSync(targetPath).size, { sampleRate, channels: 1 });
               const costUsd = estimateDeepgramCostUsd(seconds, { multilingual: language !== 'en', diarize: true });
@@ -441,8 +449,11 @@ function createMeetingController(deps) {
       let cumOffset = 0;
       for (let off = 0; off < pcm.length; off += windowBytes) {
         const slice = pcm.subarray(off, Math.min(off + windowBytes, pcm.length));
-        const chunkWav = encodeWav(Buffer.from(slice), { sampleRate, channels: 1 });
-        q.enqueue({ channel, wavBuffer: chunkWav, tOffset: cumOffset });
+        // Stille-Gate (wie bei der Live-Transkription): leere Fenster nicht senden.
+        if (maxFrameRms(slice, { sampleRate }) >= speechGate) {
+          const chunkWav = encodeWav(Buffer.from(slice), { sampleRate, channels: 1 });
+          q.enqueue({ channel, wavBuffer: chunkWav, tOffset: cumOffset });
+        }
         cumOffset += slice.length / 2 / sampleRate;
       }
       if (tmp) { try { fs.rmSync(tmp); } catch { /* Temp-Aufräumen best effort */ } }

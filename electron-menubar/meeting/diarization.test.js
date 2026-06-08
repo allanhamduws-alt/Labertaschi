@@ -2,7 +2,45 @@ import { describe, it, expect } from 'vitest';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
-const { parseDeepgram, diarizeWithDeepgram } = require('./diarization.js');
+const { parseDeepgram, diarizeWithDeepgram, assignSpeakers } = require('./diarization.js');
+
+describe('assignSpeakers', () => {
+  it('übernimmt das Sprecher-Label des am stärksten überlappenden Turns, behält aber den Text', () => {
+    const text = [
+      { tStart: 0, tEnd: 2, speaker: 'me', channel: 'mic', text: 'Hallo' },
+      { tStart: 2.1, tEnd: 4, speaker: 'me', channel: 'mic', text: 'wie gehts' },
+    ];
+    const turns = [
+      { tStart: 0, tEnd: 2, speaker: 'Sprecher 1' },
+      { tStart: 2, tEnd: 4, speaker: 'Sprecher 2' },
+    ];
+    const out = assignSpeakers(text, turns);
+    expect(out[0].speaker).toBe('Sprecher 1');
+    expect(out[1].speaker).toBe('Sprecher 2');
+    expect(out[0].text).toBe('Hallo');      // Groqs Text bleibt
+    expect(out[1].text).toBe('wie gehts');
+  });
+  it('ohne Turns bleiben die Segmente unverändert (als Kopie)', () => {
+    const text = [{ tStart: 0, tEnd: 1, speaker: 'me', text: 'x' }];
+    const out = assignSpeakers(text, []);
+    expect(out[0].speaker).toBe('me');
+    expect(out).not.toBe(text);
+  });
+  it('ohne Überlappung wird der zeitlich nächste Sprecher zugewiesen (konsistente Labels)', () => {
+    const out = assignSpeakers(
+      [{ tStart: 10, tEnd: 11, speaker: 'me', text: 'x' }],
+      [{ tStart: 0, tEnd: 1, speaker: 'Sprecher 1' }],
+    );
+    expect(out[0].speaker).toBe('Sprecher 1');
+  });
+  it('wählt bei Lücke den näheren von zwei Turns', () => {
+    const out = assignSpeakers(
+      [{ tStart: 5, tEnd: 6, speaker: 'me', text: 'x' }],
+      [{ tStart: 0, tEnd: 1, speaker: 'Sprecher 1' }, { tStart: 6.5, tEnd: 8, speaker: 'Sprecher 2' }],
+    );
+    expect(out[0].speaker).toBe('Sprecher 2');
+  });
+});
 
 describe('parseDeepgram', () => {
   it('nutzt utterances mit Sprecher-Labels (Sprecher 1/2 …)', () => {
