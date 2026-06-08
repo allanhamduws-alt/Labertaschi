@@ -1,0 +1,88 @@
+import { describe, it, expect } from 'vitest';
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs';
+import { EventEmitter } from 'node:events';
+const { createMeetingController } = require('./meeting-controller.js');
+const { createMeetingStore } = require('./meeting-store.js');
+
+function fakeStore(init = {}) {
+  const d = { language: 'de', groqApiKey: 'k', meetingSummaryModel: 'llama-3.3-70b-versatile', meetings: [], ...init };
+  return { get: (k) => d[k], set: (k, v) => { d[k] = v; } };
+}
+
+class FakeTee extends EventEmitter {
+  constructor() { super(); this.isRunning = false; }
+  start() { this.isRunning = true; }
+  stop() { this.isRunning = false; }
+}
+
+async function fakeFetch(url) {
+  if (String(url).includes('/audio/transcriptions')) {
+    return { ok: true, json: async () => ({ segments: [{ start: 0, end: 1, text: 'Testsatz' }] }) };
+  }
+  // chat/completions → KI-Protokoll als JSON
+  return {
+    ok: true,
+    json: async () => ({
+      choices: [{ message: { content: JSON.stringify({ kurzzusammenfassung: 'Z', kernpunkte: ['K'], todos: [], offeneFragen: [] }) } }],
+    }),
+  };
+}
+
+describe('MeetingController (Integration mit Fakes)', () => {
+  it('nimmt auf, transkribiert beide Kanäle, mergt, erzeugt Protokoll und speichert', async () => {
+    const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'paply-ctl-'));
+    const store = fakeStore();
+    const meetingStore = createMeetingStore({ baseDir, store });
+    const tee = new FakeTee();
+    const events = [];
+    const win = { webContents: { send: (ch, p) => events.push({ ch, p }) } };
+
+    const ctl = createMeetingController({
+      store, meetingStore, audioTee: tee,
+      getOverlayWindow: () => win, getMainWindow: () => null,
+      fetchImpl: fakeFetch, windowSeconds: 1, sampleRate: 100, excludePid: 4242,
+      now: () => 1700000000000,
+    });
+
+    const { id } = ctl.start();
+    expect(typeof id).toBe('string');
+    expect(tee.isRunning).toBe(true);
+
+    // Genug PCM für je genau ein 1-s-Fenster (100 samples * 2 byte = 200 byte)
+    tee.emit('pcm', Buffer.alloc(200));      // System-Audio
+    ctl.onMicPcm(Buffer.alloc(200));         // Mikrofon
+
+    await ctl.stop();
+
+    const full = meetingStore.get(id);
+    expect(full).not.toBeNull();
+    expect(full.transcript.segments.length).toBeGreaterThan(0);
+    // Beide Kanäle vertreten
+    expect(full.transcript.segments.some((s) => s.channel === 'mic')).toBe(true);
+    expect(full.transcript.segments.some((s) => s.channel === 'system')).toBe(true);
+    // KI-Protokoll erzeugt
+    expect(full.summary).not.toBeNull();
+    expect(full.summary.kurzzusammenfassung).toBe('Z');
+    expect(full.index.hasSummary).toBe(true);
+    // Lifecycle-Events
+    expect(events.some((e) => e.ch === 'meeting:started')).toBe(true);
+    expect(events.some((e) => e.ch === 'meeting:stopped')).toBe(true);
+    expect(tee.isRunning).toBe(false);
+  });
+
+  it('isActive spiegelt den Zustand', () => {
+    const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'paply-ctl2-'));
+    const store = fakeStore();
+    const meetingStore = createMeetingStore({ baseDir, store });
+    const ctl = createMeetingController({
+      store, meetingStore, audioTee: new FakeTee(),
+      getOverlayWindow: () => null, getMainWindow: () => null,
+      fetchImpl: fakeFetch, windowSeconds: 1, sampleRate: 100, now: () => 1700000000000,
+    });
+    expect(ctl.isActive()).toBe(false);
+    ctl.start();
+    expect(ctl.isActive()).toBe(true);
+  });
+});
