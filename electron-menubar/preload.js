@@ -60,8 +60,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Meeting-Recorder
   startMeeting: () => ipcRenderer.invoke('meeting:start'),
   stopMeeting: () => ipcRenderer.invoke('meeting:stop'),
+  getMeetingStatus: () => ipcRenderer.invoke('meeting:get-status'),
   sendMicPcm: (buf) => ipcRenderer.send('meeting:mic-pcm', buf),
   sendMicLevel: (lvl) => ipcRenderer.send('meeting:mic-level', lvl),
+  setOverlayExpanded: (expanded) => ipcRenderer.send('meeting:overlay-expand', expanded),
   listMeetings: () => ipcRenderer.invoke('meetings:list'),
   getMeeting: (id) => ipcRenderer.invoke('meetings:get', id),
   deleteMeeting: (id) => ipcRenderer.invoke('meetings:delete', id),

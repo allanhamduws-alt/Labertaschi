@@ -2103,6 +2103,15 @@ function setupIpcHandlers() {
   // Meeting-Recorder
   ipcMain.handle('meeting:start', () => (meetingController ? meetingController.start() : null));
   ipcMain.handle('meeting:stop', () => (meetingController ? meetingController.stop() : null));
+  ipcMain.handle('meeting:get-status', () => (meetingController ? meetingController.getStatus() : { active: false, id: null }));
+  ipcMain.on('meeting:overlay-expand', (_e, expanded) => {
+    if (!meetingOverlayWindow || meetingOverlayWindow.isDestroyed()) return;
+    const { screen } = require('electron');
+    const { width } = screen.getPrimaryDisplay().workAreaSize;
+    const w = expanded ? 360 : 200;
+    const h = expanded ? 240 : 64;
+    meetingOverlayWindow.setBounds({ x: width - w - 24, y: 24, width: w, height: h });
+  });
   ipcMain.on('meeting:mic-pcm', (_e, buf) => { if (meetingController) meetingController.onMicPcm(Buffer.from(buf)); });
   ipcMain.on('meeting:mic-level', (_e, lvl) => { if (meetingController) meetingController.onMicLevel(lvl); });
   ipcMain.handle('meetings:list', () => (meetingStore ? meetingStore.list() : []));

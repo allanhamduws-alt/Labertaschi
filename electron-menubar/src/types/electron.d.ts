@@ -156,8 +156,10 @@ export interface ElectronAPI {
   openAccessibilitySettings: () => void;
 
   // Meeting-Recorder
-  startMeeting: () => Promise<{ id: string }>;
-  stopMeeting: () => Promise<{ id: string | null }>;
+  startMeeting: () => Promise<{ id: string } | null>;
+  stopMeeting: () => Promise<{ id: string | null } | null>;
+  getMeetingStatus: () => Promise<{ active: boolean; id: string | null }>;
+  setOverlayExpanded: (expanded: boolean) => void;
   sendMicPcm: (buf: ArrayBuffer) => void;
   sendMicLevel: (lvl: number) => void;
   listMeetings: () => Promise<MeetingIndexEntry[]>;

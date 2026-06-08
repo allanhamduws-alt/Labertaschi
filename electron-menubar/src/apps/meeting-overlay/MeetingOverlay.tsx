@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Mic } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import type { MeetingSegment } from '@/types/meeting';
 
 type HealthColor = 'green' | 'yellow' | 'red';
 
@@ -57,6 +58,7 @@ export function MeetingOverlay() {
   const [durationMs, setDurationMs] = useState(0);
   const [micLevel, setMicLevel] = useState(0);
   const [systemLevel, setSystemLevel] = useState(0);
+  const [liveSegments, setLiveSegments] = useState<MeetingSegment[]>([]);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
@@ -80,6 +82,7 @@ export function MeetingOverlay() {
   };
 
   const startCapture = async () => {
+    if (audioCtxRef.current) return; // bereits aktiv — Doppelstart (Push+Pull) vermeiden
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -136,6 +139,7 @@ export function MeetingOverlay() {
       setDurationMs(0);
       setMicLevel(0);
       setSystemLevel(0);
+      setLiveSegments([]);
       startCapture();
     });
 
@@ -155,27 +159,49 @@ export function MeetingOverlay() {
       setSystemLevel(s.systemLevel);
     });
 
+    // Live-Transkript (R5): bei jedem fertigen Chunk die gemergten Segmente anzeigen
+    window.electronAPI.onMeetingTranscriptChunk((segs: MeetingSegment[]) => {
+      setLiveSegments(segs);
+    });
+
+    // Pull-Modell gegen die Start-Race: falls das 'meeting:started'-Push-Event
+    // verloren ging (Fenster beim ersten Start noch nicht geladen), Status aktiv abfragen.
+    window.electronAPI.getMeetingStatus().then((st) => {
+      if (st && st.active) {
+        setActive(true);
+        startCapture();
+      }
+    });
+
     return () => {
       stopCapture();
     };
   }, []);
+
+  // Overlay-Fenster bei Bedarf vergrößern (Transkript-Panel), sonst klein/unauffällig
+  useEffect(() => {
+    if (active) window.electronAPI.setOverlayExpanded(expanded);
+  }, [expanded, active]);
 
   if (!active) return null;
 
   const micBarHeight = Math.round(4 + micLevel * 16);
   const sysBarHeight = Math.round(4 + systemLevel * 16);
 
+  const speakerLabel = (s: string) => (s === 'me' ? 'Ich' : s === 'other' ? 'Gegenstelle' : s);
+
   return (
-    <div className="flex items-start justify-start h-screen p-1">
+    <div className="flex flex-col items-end justify-start h-screen p-1 gap-1">
+      {/* Kleines Pill — Klick klappt das Transkript auf/zu */}
       <div
         className={cn(
-          'flex items-center gap-1.5 px-2 py-1 rounded-xl backdrop-blur border shadow-md cursor-default select-none',
+          'flex items-center gap-1.5 px-2 py-1 rounded-xl backdrop-blur border shadow-md cursor-pointer select-none',
           'bg-card/95 border-border/50 transition-all duration-200',
           health === 'red' && 'border-red-500/50'
         )}
-        onMouseEnter={() => setExpanded(true)}
-        onMouseLeave={() => setExpanded(false)}
+        onClick={() => setExpanded((e) => !e)}
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        title={expanded ? 'Transkript ausblenden' : 'Transkript anzeigen'}
       >
         {/* Mic icon */}
         <Mic className="w-4 h-4 text-muted-foreground flex-shrink-0" />
@@ -202,34 +228,58 @@ export function MeetingOverlay() {
           )}
         />
 
-        {/* Expanded: duration + stop button */}
-        {expanded && (
-          <>
-            <span className="text-xs text-muted-foreground font-mono tabular-nums">
-              {formatDuration(durationMs)}
-            </span>
-            <button
-              className={cn(
-                'flex items-center justify-center w-4 h-4 rounded-sm',
-                'bg-destructive/80 hover:bg-destructive transition-colors',
-                'text-destructive-foreground'
-              )}
-              style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-              onClick={() => window.electronAPI.stopMeeting()}
-              title="Meeting stoppen"
-            >
-              <span className="text-[8px] leading-none font-bold">■</span>
-            </button>
-          </>
-        )}
+        {/* Dauer */}
+        <span className="text-xs text-muted-foreground font-mono tabular-nums">
+          {formatDuration(durationMs)}
+        </span>
 
-        {/* Red reason text */}
-        {health === 'red' && reason && (
-          <span className="text-[10px] text-red-400 max-w-[120px] truncate">
-            {reason}
-          </span>
-        )}
+        {/* Stop-Button */}
+        <button
+          className={cn(
+            'flex items-center justify-center w-4 h-4 rounded-sm',
+            'bg-destructive/80 hover:bg-destructive transition-colors',
+            'text-destructive-foreground'
+          )}
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          onClick={(e) => { e.stopPropagation(); window.electronAPI.stopMeeting(); }}
+          title="Meeting stoppen"
+        >
+          <span className="text-[8px] leading-none font-bold">■</span>
+        </button>
       </div>
+
+      {/* Rot: Klartext-Grund (z.B. fehlende Berechtigung) */}
+      {health === 'red' && reason && (
+        <div
+          className="px-2 py-1 rounded-lg bg-card/95 border border-red-500/50 text-[10px] text-red-400 max-w-[340px]"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        >
+          {reason}
+        </div>
+      )}
+
+      {/* Ausgeklappt: mitlaufendes Transkript (R5) */}
+      {expanded && (
+        <div
+          className="w-[340px] max-h-[180px] overflow-y-auto px-2 py-1.5 rounded-xl backdrop-blur border bg-card/95 border-border/50 shadow-md"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        >
+          {liveSegments.length === 0 ? (
+            <p className="text-[11px] text-muted-foreground">Transkript erscheint, sobald gesprochen wird …</p>
+          ) : (
+            <div className="space-y-1">
+              {liveSegments.slice(-12).map((seg, i) => (
+                <p key={i} className="text-[11px] leading-snug">
+                  <span className={cn('font-semibold', seg.speaker === 'me' ? 'text-primary' : 'text-blue-400')}>
+                    {speakerLabel(seg.speaker)}:
+                  </span>{' '}
+                  <span className="text-foreground/90">{seg.text}</span>
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
