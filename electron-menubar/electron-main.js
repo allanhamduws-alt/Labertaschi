@@ -2492,6 +2492,10 @@ app.whenReady().then(() => {
     getMainWindow: () => mainWindow,
     fetchImpl: (...args) => globalThis.fetch(...args),
     excludePid: process.pid,
+    // Intelligentes Chunking: Schnitt bevorzugt an Sprechpausen zwischen 20–40 s
+    // (statt hart bei 30 s), spätestens hart bei 40 s.
+    chunkMinSeconds: 20,
+    chunkMaxSeconds: 40,
   });
 
   registerHotkey();

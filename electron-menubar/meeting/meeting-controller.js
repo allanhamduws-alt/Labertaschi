@@ -42,8 +42,23 @@ function createMeetingController(deps) {
   const {
     store, meetingStore, audioTee, getOverlayWindow, getMainWindow,
     fetchImpl, windowSeconds = 30, sampleRate = 16000, excludePid,
+    chunkMinSeconds, chunkMaxSeconds, silenceRms,
     now = () => Date.now(),
   } = deps;
+
+  // Baut einen ChunkAccumulator: VAD-Schnitt (an Sprechpausen) wenn min/max gesetzt,
+  // sonst fester Schnitt bei windowSeconds (Abwärtskompatibilität / Tests).
+  function makeAccumulator(onChunk) {
+    const opts = { sampleRate, onChunk };
+    if (chunkMinSeconds != null || chunkMaxSeconds != null) {
+      opts.minSeconds = chunkMinSeconds != null ? chunkMinSeconds : 20;
+      opts.maxSeconds = chunkMaxSeconds != null ? chunkMaxSeconds : 40;
+      if (silenceRms != null) opts.silenceRms = silenceRms;
+    } else {
+      opts.windowSeconds = windowSeconds;
+    }
+    return new ChunkAccumulator(opts);
+  }
 
   let active = false;
   let stopping = false;   // true während der async-Finalisierung in stop()
@@ -152,8 +167,8 @@ function createMeetingController(deps) {
     queue.on('segments', _onSegments);
     queue.on('error', () => { /* Audio bleibt gesichert; Status bleibt grün/gelb */ });
 
-    micAcc = new ChunkAccumulator({ sampleRate, windowSeconds, onChunk: (c) => _handleChunk('mic', c) });
-    sysAcc = new ChunkAccumulator({ sampleRate, windowSeconds, onChunk: (c) => _handleChunk('system', c) });
+    micAcc = makeAccumulator((c) => _handleChunk('mic', c));
+    sysAcc = makeAccumulator((c) => _handleChunk('system', c));
 
     onTeePcm = (buf) => { lastSystemPcmMs = now(); systemLevel = rms(buf); sysAcc.push(buf); };
     onTeeError = (err) => {
@@ -283,17 +298,28 @@ function createMeetingController(deps) {
     const path = require('node:path');
     const sampleDir = path.dirname(meetingStore.chunkPath(id, 'mic', 0));
     if (!fs.existsSync(sampleDir)) return false;
-    const files = fs.readdirSync(sampleDir).filter((f) => f.endsWith('.wav')).sort();
-    const q = new TranscriptionQueue({ apiKey: store.get('groqApiKey'), language: store.get('language'), fetchImpl });
+    const all = fs.readdirSync(sampleDir).filter((f) => /^(mic|system)_\d+\.wav$/.test(f));
     const mic = []; const sys = [];
-    q.on('segments', ({ channel, segments }) => { (channel === 'mic' ? mic : sys).push(...segments); });
-    for (const f of files) {
-      const m = f.match(/^(mic|system)_(\d+)\.wav$/);
-      if (!m) continue;
-      const channel = m[1];
-      const seq = parseInt(m[2], 10);
-      const wav = fs.readFileSync(path.join(sampleDir, f));
-      q.enqueue({ channel, wavBuffer: wav, tOffset: seq * windowSeconds });
+    const lastText = { mic: '', system: '' };
+    const q = new TranscriptionQueue({
+      apiKey: store.get('groqApiKey'), language: store.get('language'), fetchImpl,
+      getPrompt: (ch) => lastText[ch] || '',
+    });
+    q.on('segments', ({ channel, segments }) => {
+      (channel === 'mic' ? mic : sys).push(...segments);
+      const added = segments.map((s) => s.text).join(' ');
+      lastText[channel] = ((lastText[channel] || '') + ' ' + added).slice(-800).trimStart();
+    });
+    // Pro Kanal sortiert einreihen; tOffset aus echten Chunk-Längen kumulieren
+    // (Chunks sind durch VAD variabel lang — seq*windowSeconds wäre falsch).
+    for (const channel of ['mic', 'system']) {
+      const files = all.filter((f) => f.startsWith(channel + '_')).sort();
+      let cumOffset = 0;
+      for (const f of files) {
+        const wav = fs.readFileSync(path.join(sampleDir, f));
+        q.enqueue({ channel, wavBuffer: wav, tOffset: cumOffset });
+        cumOffset += Math.max(0, wav.length - 44) / 2 / sampleRate;
+      }
     }
     await q.idle();
     const merged = mergeSegments(mic, sys);
