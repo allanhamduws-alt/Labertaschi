@@ -177,7 +177,13 @@ function createMeetingController(deps) {
     micAcc = makeAccumulator((c) => _handleChunk('mic', c));
     sysAcc = makeAccumulator((c) => _handleChunk('system', c));
 
-    onTeePcm = (buf) => { lastSystemPcmMs = now(); gotSystemPcm = true; systemLevel = rms(buf); sysAcc.push(buf); };
+    onTeePcm = (buf) => {
+      systemLevel = rms(buf);
+      // Nur ECHTES Signal (mit Energie) zählt als „System-Audio empfangen".
+      // Reine Stille (rms ~0) bedeutet meist: Berechtigung fehlt -> AudioTee tappt lautlos.
+      if (systemLevel > 0.005) { lastSystemPcmMs = now(); gotSystemPcm = true; }
+      sysAcc.push(buf);
+    };
     onTeeError = (err) => {
       const msg = err && err.message ? err.message : 'unbekannter Fehler';
       const m = msg.toLowerCase();
