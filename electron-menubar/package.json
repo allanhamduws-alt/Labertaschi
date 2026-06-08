@@ -5,6 +5,7 @@
   "main": "electron-main.js",
   "scripts": {
     "dev": "npm run vite:build && electron .",
+    "dev:test": "npm run vite:build && PAPLY_USER_DATA=\"$HOME/.paply-test\" electron .",
     "dev:vite": "vite",
     "vite:build": "vite build",
     "build": "npm run vite:build && electron-builder --mac --arm64 --publish never",

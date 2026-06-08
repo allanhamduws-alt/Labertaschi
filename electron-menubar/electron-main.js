@@ -16,6 +16,23 @@ const fs = require('node:fs');
 const { spawn, exec } = require('node:child_process');
 
 // ============================================================================
+// ISOLIERTER TEST-MODUS
+// Wenn PAPLY_USER_DATA gesetzt ist, nutzt die App einen separaten Daten-Ordner.
+// So lassen sich neue Versionen lokal testen, ohne die Produktiv-Konfiguration
+// (Groq-Key, History, Settings) der installierten App anzufassen. Muss VOR
+// app.whenReady und vor der ersten electron-store-Nutzung gesetzt werden.
+// Aktivierung: `npm run dev:test`.
+// ============================================================================
+if (process.env.PAPLY_USER_DATA) {
+  try {
+    app.setPath('userData', process.env.PAPLY_USER_DATA);
+    console.log('[paply] Isolierter Test-Modus — userData:', process.env.PAPLY_USER_DATA);
+  } catch (e) {
+    console.error('[paply] Konnte userData-Pfad nicht setzen:', e.message);
+  }
+}
+
+// ============================================================================
 // PLATFORM HELPERS
 // ============================================================================
 const isMac = process.platform === 'darwin';
