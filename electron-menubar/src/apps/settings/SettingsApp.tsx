@@ -49,6 +49,8 @@ export function SettingsApp() {
   const [isCapturing, setIsCapturing] = useState(false);
   const [meetingHotkey, setMeetingHotkey] = useState('');
   const [isCapturingMeeting, setIsCapturingMeeting] = useState(false);
+  const [showDeepgramKey, setShowDeepgramKey] = useState(false);
+  const [deepgramKey, setDeepgramKey] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -63,6 +65,7 @@ export function SettingsApp() {
         setGroqKey(settingsData.groqApiKey || '');
         setShortcut(settingsData.shortcut || '');
         setMeetingHotkey(settingsData.meetingHotkey || '');
+        setDeepgramKey(settingsData.deepgramApiKey || '');
       } catch (error) {
         console.error('Failed to load settings:', error);
       }
@@ -185,6 +188,50 @@ export function SettingsApp() {
                 </div>
                 <Button
                   onClick={() => handleSave('groqApiKey', groqKey)}
+                  disabled={isSaving}
+                >
+                  Speichern
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Deepgram API Key (optional)</CardTitle>
+              <CardDescription>
+                Für die Trennung mehrerer Remote-Sprecher in Meetings. Kostenloser Key auf{' '}
+                <a
+                  href="https://console.deepgram.com"
+                  className="text-primary underline"
+                  target="_blank"
+                  rel="noopener"
+                >
+                  console.deepgram.com
+                </a>
+                {' '}(200$ Startguthaben). Aktivieren unter „Verhalten".
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Input
+                    type={showDeepgramKey ? 'text' : 'password'}
+                    value={deepgramKey}
+                    onChange={(e) => setDeepgramKey(e.target.value)}
+                    placeholder="(Deepgram API Key)"
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowDeepgramKey(!showDeepgramKey)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    {showDeepgramKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <Button
+                  onClick={() => handleSave('deepgramApiKey', deepgramKey)}
                   disabled={isSaving}
                 >
                   Speichern
@@ -408,6 +455,19 @@ export function SettingsApp() {
                 <Switch
                   checked={settings.enablePolish}
                   onCheckedChange={(checked) => handleSave('enablePolish', checked)}
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label>Sprecher trennen (Meetings)</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Mehrere Remote-Sprecher per Deepgram unterscheiden (Deepgram-Key nötig)
+                  </p>
+                </div>
+                <Switch
+                  checked={settings.diarizationEnabled}
+                  onCheckedChange={(checked) => handleSave('diarizationEnabled', checked)}
                 />
               </div>
 

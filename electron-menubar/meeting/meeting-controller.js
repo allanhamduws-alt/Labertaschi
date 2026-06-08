@@ -13,6 +13,7 @@ const { TranscriptionQueue } = require('./transcription-queue');
 const { mergeSegments } = require('./transcript-merger');
 const { evaluateHealth } = require('./health-monitor');
 const { generateMeetingSummary } = require('./summary');
+const { diarizeWithDeepgram } = require('./diarization');
 
 function speakerLabel(s) {
   if (s === 'me') return 'Ich';
@@ -43,6 +44,7 @@ function createMeetingController(deps) {
     store, meetingStore, audioTee, getOverlayWindow, getMainWindow,
     fetchImpl, windowSeconds = 30, sampleRate = 16000, excludePid,
     chunkMinSeconds, chunkMaxSeconds, silenceRms,
+    diarize = diarizeWithDeepgram,
     now = () => Date.now(),
   } = deps;
 
@@ -233,12 +235,26 @@ function createMeetingController(deps) {
         }
       } catch { /* Audio-Finalisierung fehlgeschlagen — Chunk-Dateien bleiben als Fallback */ }
 
-      const merged = mergeSegments(micSegs, sysSegs);
+      // Optionale Sprecher-Diarisierung des System-Kanals (Deepgram, Phase 2):
+      // über die KOMPLETTE audio_system.wav -> konsistente Sprecher-IDs übers ganze Meeting.
+      let sysForMerge = sysSegs;
+      const deepgramKey = store.get('deepgramApiKey');
+      if (store.get('diarizationEnabled') && deepgramKey) {
+        try {
+          const sysAudioPath = nodePath.join(meetingDir, 'audio_system.wav');
+          if (fs.existsSync(sysAudioPath)) {
+            const diarized = await diarize(sysAudioPath, { apiKey: deepgramKey, language, fetchImpl });
+            if (diarized && diarized.length) sysForMerge = diarized;
+          }
+        } catch { /* Diarisierung fehlgeschlagen — Groq-Transkript ('Gegenstelle') bleibt erhalten */ }
+      }
+
+      const merged = mergeSegments(micSegs, sysForMerge);
       try { meetingStore.saveTranscript(id, { segments: merged, language }); } catch { /* Disk-Fehler */ }
 
       const durationMs = now() - startedAtMs;
       const preview = (merged[0] && merged[0].text ? merged[0].text : '').slice(0, 120);
-      const speakerCount = (micSegs.length > 0 ? 1 : 0) + (sysSegs.length > 0 ? 1 : 0) || 1;
+      const speakerCount = new Set(merged.map((s) => s.speaker)).size || 1;
       const title = new Date(startedAtMs).toLocaleString('de-DE');
       try { meetingStore.finalizeIndex(id, { durationMs, preview, speakerCount, title }); } catch { /* Disk-Fehler */ }
 

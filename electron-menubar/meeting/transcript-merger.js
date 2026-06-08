@@ -1,12 +1,13 @@
 // TranscriptMerger — verschmilzt Mic- und System-Kanal-Segmente chronologisch.
-// Kanal 'mic' → speaker 'me', Kanal 'system' → speaker 'other'.
+// Kanal 'mic' → speaker 'me', Kanal 'system' → speaker 'other' — ABER ein bereits
+// gesetztes speaker-Label (z.B. 'Sprecher 1' aus der Deepgram-Diarisierung) bleibt erhalten.
 // Aufeinanderfolgende Segmente desselben Sprechers werden NICHT zusammengeführt (Wortgetreue, R7).
 // CommonJS.
 
 function mergeSegments(micSegs = [], systemSegs = []) {
   const tagged = [
-    ...micSegs.map(s => ({ ...s, speaker: 'me', channel: 'mic' })),
-    ...systemSegs.map(s => ({ ...s, speaker: 'other', channel: 'system' })),
+    ...micSegs.map(s => ({ ...s, speaker: s.speaker || 'me', channel: 'mic' })),
+    ...systemSegs.map(s => ({ ...s, speaker: s.speaker || 'other', channel: 'system' })),
   ];
   // Stabil sortieren: nach tStart; bei Gleichstand mic (0) vor system (1)
   return tagged

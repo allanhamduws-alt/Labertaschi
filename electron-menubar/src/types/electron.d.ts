@@ -13,6 +13,8 @@ export interface Settings {
   activeProfile: string;
   pttThreshold: number;
   meetingHotkey: string;
+  deepgramApiKey: string;
+  diarizationEnabled: boolean;
 }
 
 export interface HistoryItem {

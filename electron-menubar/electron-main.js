@@ -136,6 +136,9 @@ function getStore() {
         meetings: [],
         meetingHotkey: 'Command+Shift+X',
         meetingSummaryModel: 'llama-3.3-70b-versatile',
+        // Mehr-Sprecher-Trennung im System-Kanal (Deepgram, Phase 2)
+        deepgramApiKey: '',
+        diarizationEnabled: false,
       },
     });
   }
@@ -2155,6 +2158,8 @@ function setupIpcHandlers() {
       activeProfile: s.get('activeProfile'),
       pttThreshold: s.get('pttThreshold', 350),
       meetingHotkey: s.get('meetingHotkey', 'Command+Shift+X'),
+      deepgramApiKey: s.get('deepgramApiKey', ''),
+      diarizationEnabled: s.get('diarizationEnabled', false),
     };
   });
 
@@ -2176,6 +2181,9 @@ function setupIpcHandlers() {
       s.set('meetingHotkey', settings.meetingHotkey);
       registerHotkey();
     }
+
+    if (settings.deepgramApiKey !== undefined) s.set('deepgramApiKey', settings.deepgramApiKey);
+    if (settings.diarizationEnabled !== undefined) s.set('diarizationEnabled', settings.diarizationEnabled);
 
     if (settings.pttThreshold !== undefined) {
       s.set('pttThreshold', settings.pttThreshold);
