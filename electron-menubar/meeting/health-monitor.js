@@ -24,6 +24,7 @@ function evaluateHealth({
   micWriteOk,
   systemProcessAlive,
   systemPermissionDenied,
+  systemAudioError,
   diskError,
   micLevel,
   systemLevel,
@@ -34,6 +35,9 @@ function evaluateHealth({
   }
   if (systemPermissionDenied) {
     return { color: 'red', reason: 'Systemaudio-Berechtigung fehlt' };
+  }
+  if (systemAudioError) {
+    return { color: 'red', reason: 'System-Audio-Fehler: ' + systemAudioError };
   }
   if (!systemProcessAlive) {
     return { color: 'red', reason: 'System-Audio gestoppt' };

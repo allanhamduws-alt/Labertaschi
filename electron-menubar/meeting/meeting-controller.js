@@ -83,6 +83,7 @@ function createMeetingController(deps) {
   let micWriteOk = true;
   let diskError = false;
   let permissionDenied = false;
+  let systemAudioError = null;
 
   // Finale Audiodateien werden beim Stop aus den Chunk-Dateien gestreamt (RAM-schonend).
 
@@ -136,6 +137,7 @@ function createMeetingController(deps) {
       micWriteOk,
       systemProcessAlive: !!audioTee.isRunning,
       systemPermissionDenied: permissionDenied,
+      systemAudioError,
       diskError,
       micLevel,
       systemLevel,
@@ -157,7 +159,7 @@ function createMeetingController(deps) {
     sessionId = meetingStore.create(new Date(startedAtMs).toISOString());
 
     micSegs = []; sysSegs = []; lastTextByChannel = { mic: '', system: '' };
-    micLevel = 0; systemLevel = 0; micWriteOk = true; diskError = false; permissionDenied = false;
+    micLevel = 0; systemLevel = 0; micWriteOk = true; diskError = false; permissionDenied = false; systemAudioError = null;
     lastSystemPcmMs = startedAtMs; // Stille-Erkennung erst nach Schwelle
 
     queue = new TranscriptionQueue({
@@ -174,9 +176,12 @@ function createMeetingController(deps) {
 
     onTeePcm = (buf) => { lastSystemPcmMs = now(); systemLevel = rms(buf); sysAcc.push(buf); };
     onTeeError = (err) => {
-      const m = (err && err.message ? err.message : '').toLowerCase();
+      const msg = err && err.message ? err.message : 'unbekannter Fehler';
+      const m = msg.toLowerCase();
       if (m.includes('permission') || m.includes('berechtigung') || m.includes('not authorized') || m.includes('tcc')) {
         permissionDenied = true;
+      } else {
+        systemAudioError = msg;
       }
     };
     onTeeLog = () => {};

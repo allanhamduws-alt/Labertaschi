@@ -14,4 +14,9 @@ describe('evaluateHealth', () => {
   it('gelb bei langer System-Stille', () => {
     expect(evaluateHealth({ ...base, secondsSinceSystemAudio: 90 }).color).toBe('yellow');
   });
+  it('rot bei AudioTee-Fehler (mit Grund im reason)', () => {
+    const r = evaluateHealth({ ...base, systemAudioError: 'Failed to translate process IDs' });
+    expect(r.color).toBe('red');
+    expect(r.reason).toContain('Failed to translate');
+  });
 });
