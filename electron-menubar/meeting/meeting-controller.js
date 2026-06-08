@@ -51,6 +51,8 @@ function createMeetingController(deps) {
   let startedAtMs = 0;
   let micSegs = [];
   let sysSegs = [];
+  // Bisheriger Transkript-Kontext je Kanal (als Whisper-prompt für Kontinuität)
+  let lastTextByChannel = { mic: '', system: '' };
   let micAcc = null;
   let sysAcc = null;
   let queue = null;
@@ -101,6 +103,9 @@ function createMeetingController(deps) {
   function _onSegments({ channel, segments }) {
     if (!segments || segments.length === 0) return;
     (channel === 'mic' ? micSegs : sysSegs).push(...segments);
+    // Kontext für den nächsten Chunk dieses Kanals fortschreiben (letzte ~800 Zeichen)
+    const added = segments.map((s) => s.text).join(' ');
+    lastTextByChannel[channel] = ((lastTextByChannel[channel] || '') + ' ' + added).slice(-800).trimStart();
     const merged = mergeSegments(micSegs, sysSegs);
     _emit('meeting:transcript-chunk', merged);
     try {
@@ -134,7 +139,7 @@ function createMeetingController(deps) {
     startedAtMs = now();
     sessionId = meetingStore.create(new Date(startedAtMs).toISOString());
 
-    micSegs = []; sysSegs = [];
+    micSegs = []; sysSegs = []; lastTextByChannel = { mic: '', system: '' };
     micLevel = 0; systemLevel = 0; micWriteOk = true; diskError = false; permissionDenied = false;
     lastSystemPcmMs = startedAtMs; // Stille-Erkennung erst nach Schwelle
 
@@ -142,6 +147,7 @@ function createMeetingController(deps) {
       apiKey: store.get('groqApiKey'),
       language: store.get('language'),
       fetchImpl,
+      getPrompt: (ch) => lastTextByChannel[ch] || '',
     });
     queue.on('segments', _onSegments);
     queue.on('error', () => { /* Audio bleibt gesichert; Status bleibt grün/gelb */ });

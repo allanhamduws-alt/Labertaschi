@@ -17,4 +17,23 @@ describe('transcription-queue', () => {
     expect(got[0].channel).toBe('mic');
     expect(got[0].segments[0].text).toBe('Hi');
   });
+  it('schickt den Kontext-prompt (getPrompt) als Whisper-prompt mit', async () => {
+    let captured = null;
+    const fakeFetch = async (_url, opts) => { captured = opts.body; return { ok: true, json: async () => ({ segments: [] }) }; };
+    const q = new TranscriptionQueue({
+      apiKey: 'k', language: 'de', fetchImpl: fakeFetch,
+      getPrompt: (ch) => (ch === 'mic' ? 'voriger gesprochener Text' : ''),
+    });
+    q.enqueue({ channel: 'mic', wavBuffer: Buffer.alloc(44), tOffset: 0 });
+    await q.idle();
+    expect(captured.get('prompt')).toBe('voriger gesprochener Text');
+  });
+  it('ohne getPrompt wird kein prompt-Feld gesendet', async () => {
+    let captured = null;
+    const fakeFetch = async (_url, opts) => { captured = opts.body; return { ok: true, json: async () => ({ segments: [] }) }; };
+    const q = new TranscriptionQueue({ apiKey: 'k', language: 'de', fetchImpl: fakeFetch });
+    q.enqueue({ channel: 'system', wavBuffer: Buffer.alloc(44), tOffset: 0 });
+    await q.idle();
+    expect(captured.get('prompt')).toBeNull();
+  });
 });

@@ -28,13 +28,18 @@ function parseVerbose(json, tOffset) {
  */
 class TranscriptionQueue extends EventEmitter {
   /**
-   * @param {{ apiKey: string, language: string, fetchImpl?: Function }} opts
+   * @param {{ apiKey: string, language: string, fetchImpl?: Function,
+   *           getPrompt?: (channel: 'mic'|'system') => string }} opts
+   * getPrompt liefert (zur Ausführungszeit, NICHT zur enqueue-Zeit) den bisherigen
+   * Transkript-Kontext des Kanals als Whisper-`prompt` — gibt Groq Kontext über
+   * Chunk-Grenzen hinweg, damit angeschnittene Wörter/Sätze korrekt verstanden werden.
    */
-  constructor({ apiKey, language, fetchImpl } = {}) {
+  constructor({ apiKey, language, fetchImpl, getPrompt } = {}) {
     super();
     this.apiKey = apiKey;
     this.language = language || 'de';
     this.fetchImpl = fetchImpl || globalThis.fetch;
+    this.getPrompt = typeof getPrompt === 'function' ? getPrompt : null;
     /** @type {Promise<void>} Serielle Kette */
     this.chain = Promise.resolve();
   }
@@ -74,7 +79,7 @@ class TranscriptionQueue extends EventEmitter {
         await _sleep(500 * attempt);
       }
       try {
-        const segments = await this._callGroq({ wavBuffer, tOffset });
+        const segments = await this._callGroq({ channel, wavBuffer, tOffset });
         this.emit('segments', { channel, segments });
         return;
       } catch (err) {
@@ -89,13 +94,17 @@ class TranscriptionQueue extends EventEmitter {
    * POST an Groq Whisper, gibt geparste Segmente zurück.
    * @private
    */
-  async _callGroq({ wavBuffer, tOffset }) {
+  async _callGroq({ channel, wavBuffer, tOffset }) {
     const formData = new FormData();
     formData.append('file', new Blob([wavBuffer], { type: 'audio/wav' }), 'chunk.wav');
     formData.append('model', 'whisper-large-v3');
     formData.append('language', this.language);
     formData.append('response_format', 'verbose_json');
     formData.append('timestamp_granularities[]', 'segment');
+    // Kontext-Kontinuität: bisheriger Transkript-Text des Kanals als prompt
+    // (Whisper-Limit ~224 Tokens → konservativ auf 800 Zeichen begrenzt).
+    const prompt = this.getPrompt ? this.getPrompt(channel) : null;
+    if (prompt) formData.append('prompt', String(prompt).slice(-800));
 
     const res = await this.fetchImpl(GROQ_API_URL, {
       method: 'POST',
