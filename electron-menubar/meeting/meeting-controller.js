@@ -232,6 +232,7 @@ function createMeetingController(deps) {
     } catch { /* Protokoll später per Button nachholbar */ }
 
     _emit('meeting:stopped', { id });
+    try { if (overlayWin && typeof overlayWin.hide === 'function') overlayWin.hide(); } catch { /* Fake/zerstört */ }
     overlayWin = null;
     sessionId = null;
     return { id };
