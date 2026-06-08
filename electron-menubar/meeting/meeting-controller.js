@@ -84,6 +84,7 @@ function createMeetingController(deps) {
   let diskError = false;
   let permissionDenied = false;
   let systemAudioError = null;
+  let gotSystemPcm = false;
 
   // Finale Audiodateien werden beim Stop aus den Chunk-Dateien gestreamt (RAM-schonend).
 
@@ -142,6 +143,8 @@ function createMeetingController(deps) {
       micLevel,
       systemLevel,
       secondsSinceSystemAudio,
+      gotSystemPcm,
+      secondsSinceStart: (now() - startedAtMs) / 1000,
     });
     _emit('meeting:status', {
       color: health.color,
@@ -159,7 +162,7 @@ function createMeetingController(deps) {
     sessionId = meetingStore.create(new Date(startedAtMs).toISOString());
 
     micSegs = []; sysSegs = []; lastTextByChannel = { mic: '', system: '' };
-    micLevel = 0; systemLevel = 0; micWriteOk = true; diskError = false; permissionDenied = false; systemAudioError = null;
+    micLevel = 0; systemLevel = 0; micWriteOk = true; diskError = false; permissionDenied = false; systemAudioError = null; gotSystemPcm = false;
     lastSystemPcmMs = startedAtMs; // Stille-Erkennung erst nach Schwelle
 
     queue = new TranscriptionQueue({
@@ -174,7 +177,7 @@ function createMeetingController(deps) {
     micAcc = makeAccumulator((c) => _handleChunk('mic', c));
     sysAcc = makeAccumulator((c) => _handleChunk('system', c));
 
-    onTeePcm = (buf) => { lastSystemPcmMs = now(); systemLevel = rms(buf); sysAcc.push(buf); };
+    onTeePcm = (buf) => { lastSystemPcmMs = now(); gotSystemPcm = true; systemLevel = rms(buf); sysAcc.push(buf); };
     onTeeError = (err) => {
       const msg = err && err.message ? err.message : 'unbekannter Fehler';
       const m = msg.toLowerCase();

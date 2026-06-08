@@ -19,4 +19,9 @@ describe('evaluateHealth', () => {
     expect(r.color).toBe('red');
     expect(r.reason).toContain('Failed to translate');
   });
+  it('gelb mit Setup-Hinweis, wenn nie System-Audio ankam', () => {
+    const r = evaluateHealth({ ...base, gotSystemPcm: false, secondsSinceStart: 20, secondsSinceSystemAudio: 20 });
+    expect(r.color).toBe('yellow');
+    expect(r.reason).toContain('Mac');
+  });
 });

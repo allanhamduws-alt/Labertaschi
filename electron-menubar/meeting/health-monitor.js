@@ -29,6 +29,8 @@ function evaluateHealth({
   micLevel,
   systemLevel,
   secondsSinceSystemAudio,
+  gotSystemPcm = true,
+  secondsSinceStart = 0,
 }) {
   if (diskError) {
     return { color: 'red', reason: 'Speicherproblem' };
@@ -44,6 +46,11 @@ function evaluateHealth({
   }
   if (!micWriteOk) {
     return { color: 'red', reason: 'Aufnahme wird nicht gesichert' };
+  }
+  // Frühe Diagnose: kam noch NIE System-Audio an, ist das meist ein Setup-Problem
+  // (Anruf nicht über den Mac, oder Berechtigung „Systemaudioaufnahme" fehlt).
+  if (!gotSystemPcm && secondsSinceStart > 12) {
+    return { color: 'yellow', reason: 'Kein System-Audio — läuft der Anruf über den Mac? Systemaudio-Berechtigung erteilt?' };
   }
   if (secondsSinceSystemAudio > 60) {
     return { color: 'yellow', reason: 'System-Audio still' };
