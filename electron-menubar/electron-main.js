@@ -418,7 +418,7 @@ function deleteHistoryItem(id) {
 // ============================================================================
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
 const GROQ_CHAT_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const GITHUB_REPO = 'allanhamduws-alt/paply';
+const GITHUB_REPO = 'qode-lab-wtf/paply';
 const CURRENT_VERSION = require('./package.json').version;
 
 // Verwirf reine Satzzeichen/Stille-Ergebnisse (z.B. "." oder "..." von Whisper bei Stille)
@@ -2462,6 +2462,7 @@ function setupIpcHandlers() {
     isMac,
     isWin,
     platform: process.platform,
+    version: CURRENT_VERSION,
   }));
 }
 

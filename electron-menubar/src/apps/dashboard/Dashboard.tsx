@@ -58,7 +58,7 @@ export function Dashboard() {
   const [activeProfile, setActiveProfile] = useState<string>('coding');
   const [snippets, setSnippets] = useState<Snippet[]>([]);
   const [copied, setCopied] = useState<number | null>(null);
-  const [platform, setPlatform] = useState<{ isMac: boolean; isWin: boolean } | null>(null);
+  const [platform, setPlatform] = useState<{ isMac: boolean; isWin: boolean; version?: string } | null>(null);
 
   // Load initial data
   useEffect(() => {
@@ -207,7 +207,7 @@ export function Dashboard() {
         </nav>
 
         <div className="p-4 border-t text-xs text-muted-foreground text-center">
-          paply v1.5.1
+          paply v{platform?.version ?? '1.8.0'}
         </div>
       </aside>
 

@@ -93,6 +93,7 @@ export interface Platform {
   isMac: boolean;
   isWin: boolean;
   platform: string;
+  version?: string;
 }
 
 export interface ElectronAPI {

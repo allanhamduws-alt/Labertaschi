@@ -1,6 +1,6 @@
 {
   "name": "paply-menubar",
-  "version": "1.7.3",
+  "version": "1.8.0",
   "description": "Menüleisten-App für Sprachtranskription mit Groq Whisper und optional Groq Llama Polishing",
   "main": "electron-main.js",
   "scripts": {
@@ -69,7 +69,7 @@
     "productName": "paply",
     "publish": {
       "provider": "github",
-      "owner": "allanhamduws-alt",
+      "owner": "qode-lab-wtf",
       "repo": "paply"
     },
     "mac": {

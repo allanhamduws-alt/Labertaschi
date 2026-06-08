@@ -7,9 +7,14 @@ exports.default = async function notarizing(context) {
     return;
   }
 
+  // Akzeptiere beide gängigen ENV-Namens-Konventionen (der Release-Workflow setzt
+  // APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID; lokale Setups oft APPLE_ID_PASSWORD / TEAM_ID).
+  const appleIdPassword = process.env.APPLE_ID_PASSWORD || process.env.APPLE_APP_SPECIFIC_PASSWORD;
+  const teamId = process.env.TEAM_ID || process.env.APPLE_TEAM_ID;
+
   // Skip notarization if credentials are not set
-  if (!process.env.APPLE_ID || !process.env.APPLE_ID_PASSWORD || !process.env.TEAM_ID) {
-    console.log('Skipping notarization: APPLE_ID, APPLE_ID_PASSWORD, or TEAM_ID not set');
+  if (!process.env.APPLE_ID || !appleIdPassword || !teamId) {
+    console.log('Skipping notarization: APPLE_ID, App-spezifisches Passwort oder Team-ID nicht gesetzt');
     return;
   }
 
@@ -22,8 +27,8 @@ exports.default = async function notarizing(context) {
     await notarize({
       appPath,
       appleId: process.env.APPLE_ID,
-      appleIdPassword: process.env.APPLE_ID_PASSWORD,
-      teamId: process.env.TEAM_ID,
+      appleIdPassword,
+      teamId,
     });
     console.log('Notarization complete!');
   } catch (error) {
