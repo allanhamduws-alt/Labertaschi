@@ -316,3 +316,13 @@ Groq-Key reicht; kein weiterer Dienst nötig.
    Detailseite zeigt Protokoll (4 Rubriken) + sprechergetrenntes Transkript; To-Do abhaken persistiert.
 6. „Neu transkribieren" und „Protokoll neu erzeugen" funktionieren.
 ```
+
+## 12. Bekannte Einschränkungen (Phase 1) & offene Punkte
+
+Aus dem finalen System-Review (alle R1–R12 erfüllt; folgende Punkte sind bewusst Phase-1-tolerierbar oder beim End-to-End-Test zu prüfen):
+
+- **Sprecher-Umbenennung + „Neu transkribieren":** Eine manuell vergebene Sprecher-Bezeichnung wird beim erneuten Transkribieren überschrieben, da `mergeSegments` den Sprecher wieder hart auf `me`/`other` setzt. *Phase 2:* Sprecher-Aliase separat persistieren (`speakerNames: {mic, system}`) und nach dem Merge anwenden.
+- **Word-Timestamps:** Phase 1 nutzt nur Segment-Zeitstempel (`timestamp_granularities=['segment']`). Für die Phase-2-Diarisierung (mehrere Remote-Sprecher) zusätzlich `'word'` anfordern und `words[]` ins Segment-Modell übernehmen.
+- **Audio-Wiedergabe `file://`:** Die Detailseite lädt die Aufnahmen per `file://`-URL. Im End-to-End-Test (Schritt 5) prüfen, ob das Dashboard-Fenster `file://` abspielt; falls nicht, ein registriertes App-Protokoll oder Laden über IPC (Buffer→Blob-URL) nachrüsten.
+- **Vorbestehend (nicht Teil dieses Features):** 4 TypeScript-Fehler in `Dashboard.tsx` (`Profile`→`CustomAgent`-Cast, Z. 1265 ff.) sowie ein latenter, nun gefixter `Mic`-Import-Bug in `SettingsApp.tsx`. Der toter Legacy-Code `src/main.tsx`/`src/ui` wurde aus dem `tsc`-Scope genommen (veraltete `window.electronAPI`-Deklaration).
+- **End-to-End mit echtem Audio (Schritt 1–6) ist nur manuell möglich** (Mikrofon, System-Audio, macOS-Berechtigung „Systemaudioaufnahme") — kein Agent kann das verifizieren.
