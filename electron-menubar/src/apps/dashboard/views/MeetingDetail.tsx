@@ -104,6 +104,9 @@ export function MeetingDetail({ id, onBack }: MeetingDetailProps) {
   }
 
   const { index, transcript, summary, audio } = meeting;
+  // Audio wird nach dem Meeting nicht mehr aufbewahrt (Transkript ist der Deliverable).
+  // 'Neu transkribieren' braucht aber die Audiodatei → nur verfügbar, solange Audio existiert.
+  const hasAudio = !!(audio.mic || audio.system);
 
   return (
     <div className="space-y-6">
@@ -226,7 +229,8 @@ export function MeetingDetail({ id, onBack }: MeetingDetailProps) {
               size="sm"
               variant="outline"
               onClick={handleRetranscribe}
-              disabled={retranscribing}
+              disabled={retranscribing || !hasAudio}
+              title={hasAudio ? 'Audio erneut transkribieren' : 'Audio wurde nach dem Meeting nicht aufbewahrt'}
             >
               {retranscribing ? (
                 <RefreshCw className="w-3 h-3 animate-spin mr-1" />

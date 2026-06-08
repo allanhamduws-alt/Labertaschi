@@ -199,6 +199,50 @@ describe('MeetingController (Integration mit Fakes)', () => {
     expect(meetingStore.get(id).transcript.segments.length).toBe(0); // kein "Vielen Dank"
   });
 
+  it('löscht Audio nach dem Stop (Transkript ist der Deliverable, kein Opus, keine WAV/chunks)', async () => {
+    const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'paply-ctl8-'));
+    const store = fakeStore();
+    const meetingStore = createMeetingStore({ baseDir, store });
+    const tee = new FakeTee();
+    const ctl = createMeetingController({
+      store, meetingStore, audioTee: tee,
+      getOverlayWindow: () => null, getMainWindow: () => null,
+      fetchImpl: fakeFetch, windowSeconds: 1, sampleRate: 100, now: () => 1700000000000,
+    });
+    const { id } = ctl.start();
+    tee.emit('pcm', signal());
+    ctl.onMicPcm(signal());
+    await ctl.stop();
+
+    // Transkript bleibt erhalten
+    const full = meetingStore.get(id);
+    expect(full.transcript.segments.length).toBeGreaterThan(0);
+    // Audio (WAV + Opus) ist weg, chunks/ gelöscht
+    expect(full.audio.mic).toBeNull();
+    expect(full.audio.system).toBeNull();
+    const meetingDir = path.join(baseDir, id);
+    const leftover = fs.readdirSync(meetingDir).filter((f) => f.endsWith('.wav') || f.endsWith('.opus'));
+    expect(leftover).toEqual([]);
+    expect(fs.existsSync(path.join(meetingDir, 'chunks'))).toBe(false);
+  });
+
+  it('keepAudio:true behält die finale Audiodatei (Debug/Test)', async () => {
+    const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'paply-ctl9-'));
+    const store = fakeStore();
+    const meetingStore = createMeetingStore({ baseDir, store });
+    const tee = new FakeTee();
+    const ctl = createMeetingController({
+      store, meetingStore, audioTee: tee,
+      getOverlayWindow: () => null, getMainWindow: () => null,
+      fetchImpl: fakeFetch, windowSeconds: 1, sampleRate: 100, now: () => 1700000000000,
+      keepAudio: true,
+    });
+    const { id } = ctl.start();
+    ctl.onMicPcm(signal());
+    await ctl.stop();
+    expect(meetingStore.get(id).audio.mic).not.toBeNull();
+  });
+
   it('isActive spiegelt den Zustand', () => {
     const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'paply-ctl2-'));
     const store = fakeStore();

@@ -2544,6 +2544,9 @@ app.whenReady().then(() => {
     // (statt hart bei 30 s), spätestens hart bei 40 s.
     chunkMinSeconds: 20,
     chunkMaxSeconds: 40,
+    // Audio wird nach dem Meeting gelöscht (Transkript ist der Deliverable). Für
+    // Debug/Loopback-Validierung: PAPLY_KEEP_AUDIO=1 behält die finalen Spuren.
+    keepAudio: !!process.env.PAPLY_KEEP_AUDIO,
   });
 
   registerHotkey();

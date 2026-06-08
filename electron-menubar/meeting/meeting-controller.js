@@ -15,7 +15,6 @@ const { evaluateHealth } = require('./health-monitor');
 const { generateMeetingSummary } = require('./summary');
 const { diarizeWithDeepgram, assignSpeakers } = require('./diarization');
 const { wavDurationSeconds, estimateDeepgramCostUsd, monthKey, accumulateUsage } = require('./deepgram-usage');
-const { compressToOpus, decodeToWav } = require('./audio-compress');
 
 function speakerLabel(s) {
   if (s === 'me') return 'Ich';
@@ -48,6 +47,7 @@ function createMeetingController(deps) {
     chunkMinSeconds, chunkMaxSeconds, silenceRms,
     speechGate = 0.0008, // Stille-Gate: tief genug, dass leise Stimmen bleiben, hoch genug für Digital-Stille
     diarize = diarizeWithDeepgram,
+    keepAudio = false, // true = finale Audiodateien NICHT löschen (Debug/Test/Loopback-Validierung)
     now = () => Date.now(),
   } = deps;
 
@@ -337,21 +337,16 @@ function createMeetingController(deps) {
         }
       } catch { /* Protokoll später per Button nachholbar */ }
 
-      // Speicher sparen: finale Spuren -> Opus (Transkript ist die Hauptsache),
-      // danach die unkomprimierte WAV löschen. Schlägt die Kompression fehl, bleibt die WAV.
-      for (const ch of ['mic', 'system']) {
-        const wavPath = nodePath.join(meetingDir, `audio_${ch}.wav`);
-        if (!fs.existsSync(wavPath)) continue;
-        try {
-          const opusPath = nodePath.join(meetingDir, `audio_${ch}.opus`);
-          const ok = await compressToOpus(wavPath, opusPath);
-          if (ok && fs.existsSync(opusPath) && fs.statSync(opusPath).size > 0) {
-            try { fs.rmSync(wavPath); } catch { /* WAV-Löschen best effort */ }
-          }
-        } catch { /* Kompression best effort — WAV bleibt erhalten */ }
+      // Speicher: Das Transkript IST der Deliverable (Allans Entscheidung). Die volle
+      // Audioqualität wurde live für Groq-STT + Deepgram-Diarisierung genutzt; danach wird
+      // die Audio NICHT mehr aufbewahrt. Kein Opus mehr (16 kbit/s zerstörte Wiedergabe/
+      // Re-Processing). 'keepAudio' (Debug/Test/Loopback) behält die finalen WAV-Spuren.
+      if (!keepAudio) {
+        for (const ch of ['mic', 'system']) {
+          try { fs.rmSync(nodePath.join(meetingDir, `audio_${ch}.wav`)); } catch { /* nicht vorhanden / best effort */ }
+        }
       }
-      // Redundante Chunk-Dateien entfernen (nur Absturzsicherung während der Aufnahme;
-      // 'Neu transkribieren' nutzt jetzt die finale Audiodatei).
+      // Redundante Chunk-Dateien entfernen (nur Absturzsicherung während der Aufnahme).
       try { fs.rmSync(chunksDir, { recursive: true, force: true }); } catch { /* best effort */ }
 
       _emit('meeting:stopped', { id });
@@ -412,9 +407,10 @@ function createMeetingController(deps) {
 
   async function retranscribe(id) {
     const path = require('node:path');
-    // Chunks werden nach dem Stop gelöscht — 'Neu transkribieren' nutzt die finalen
-    // Spuren (audio_<ch>.opus bzw. .wav). Opus wird per ffmpeg zu temporärem WAV
-    // dekodiert, dann pro Kanal in feste Fenster zerlegt und neu transkribiert.
+    // 'Neu transkribieren' funktioniert nur, solange noch eine finale WAV existiert
+    // (ältere Meetings oder keepAudio). Standardmäßig wird Audio nach dem Stop gelöscht
+    // (Transkript ist der Deliverable) → dann liefert retranscribe false (UI deaktiviert
+    // den Button entsprechend, da meeting.audio dann null ist).
     const meetingDir = path.dirname(path.dirname(meetingStore.chunkPath(id, 'mic', 0)));
     const mic = []; const sys = [];
     const lastText = { mic: '', system: '' };
@@ -432,19 +428,9 @@ function createMeetingController(deps) {
     let any = false;
     for (const channel of ['mic', 'system']) {
       const wavPath = path.join(meetingDir, `audio_${channel}.wav`);
-      const opusPath = path.join(meetingDir, `audio_${channel}.opus`);
-      let sourceWav = null;
-      let tmp = null;
-      if (fs.existsSync(wavPath)) {
-        sourceWav = wavPath; // ältere Meetings (vor Kompression) bzw. Fallback
-      } else if (fs.existsSync(opusPath)) {
-        tmp = path.join(meetingDir, `._retr_${channel}.wav`);
-        const ok = await decodeToWav(opusPath, tmp, { sampleRate });
-        if (ok && fs.existsSync(tmp)) sourceWav = tmp;
-      }
-      if (!sourceWav) continue;
+      if (!fs.existsSync(wavPath)) continue; // Audio wurde nach dem Stop gelöscht
       any = true;
-      const buf = fs.readFileSync(sourceWav);
+      const buf = fs.readFileSync(wavPath);
       const pcm = buf.subarray(44); // WAV-Header (44 Bytes) überspringen
       let cumOffset = 0;
       for (let off = 0; off < pcm.length; off += windowBytes) {
@@ -456,7 +442,6 @@ function createMeetingController(deps) {
         }
         cumOffset += slice.length / 2 / sampleRate;
       }
-      if (tmp) { try { fs.rmSync(tmp); } catch { /* Temp-Aufräumen best effort */ } }
     }
     if (!any) return false;
     await q.idle();

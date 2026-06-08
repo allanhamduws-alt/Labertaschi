@@ -43,6 +43,21 @@ function rms(int16: Int16Array): number {
   return Math.sqrt(sum / int16.length);
 }
 
+// Mikrofon-Constraints je Modus. Vor-Ort ('inperson'): EC/NS/AGC ALLE aus → rohes,
+// volles Mikrofon-Signal ohne WebRTC-Bandbegrenzung, ohne AGC-Clipping, ohne
+// NoiseSuppression die eine 2. (leisere) Stimme als Rauschen wegfiltert. Das ist
+// entscheidend, damit Deepgram mehrere Sprecher überhaupt trennen kann.
+// Call ('call'): nur EchoCancellation an, damit das Mikro nicht die Gegenstelle (aus
+// den Lautsprechern) mitschneidet; NS/AGC bleiben aus für natürliche Sprachqualität.
+function micConstraints(mode: 'call' | 'inperson'): MediaTrackConstraints {
+  return {
+    channelCount: 1,
+    echoCancellation: mode === 'call',
+    noiseSuppression: false,
+    autoGainControl: false,
+  };
+}
+
 function formatDuration(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
   const minutes = Math.floor(totalSeconds / 60);
@@ -68,6 +83,8 @@ export function MeetingOverlay() {
   const srcNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const pcmBufferRef = useRef<Float32Array>(new Float32Array(0));
+  // Aktueller Modus als Ref — wird in async-Capture-Closures gelesen (State ist dort evtl. stale).
+  const meetingModeRef = useRef<'call' | 'inperson'>('call');
 
   // System-Loopback-Capture (nur Windows; macOS nimmt System-Audio über AudioTee im Main auf)
   const sysAudioCtxRef = useRef<AudioContext | null>(null);
@@ -96,15 +113,14 @@ export function MeetingOverlay() {
     if (audioCtxRef.current) return; // bereits aktiv — Doppelstart (Push+Pull) vermeiden
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-        },
+        audio: micConstraints(meetingModeRef.current),
       });
       streamRef.current = stream;
 
-      const ctx = new AudioContext();
+      // AudioContext fest auf die Zielrate → Chromium resampelt sauber (Anti-Aliasing),
+      // statt der früheren groben nearest-neighbor-Dezimierung. ctx.sampleRate === 16000,
+      // daher ist das spätere downsample() ein No-op (Sicherheitsnetz, falls die Rate abweicht).
+      const ctx = new AudioContext({ sampleRate: TARGET_RATE });
       audioCtxRef.current = ctx;
 
       await ctx.audioWorklet.addModule(new URL('./mic-worklet.js', import.meta.url));
@@ -169,7 +185,7 @@ export function MeetingOverlay() {
       }
       sysStreamRef.current = stream;
 
-      const ctx = new AudioContext();
+      const ctx = new AudioContext({ sampleRate: TARGET_RATE });
       sysAudioCtxRef.current = ctx;
 
       await ctx.audioWorklet.addModule(new URL('./mic-worklet.js', import.meta.url));
@@ -215,7 +231,7 @@ export function MeetingOverlay() {
       setMicLevel(0);
       setSystemLevel(0);
       setLiveSegments([]);
-      if (d) { setDiarization(!!d.diarization); setHasDeepgramKey(!!d.hasDeepgramKey); if (d.meetingMode) setMeetingMode(d.meetingMode); }
+      if (d) { setDiarization(!!d.diarization); setHasDeepgramKey(!!d.hasDeepgramKey); if (d.meetingMode) { meetingModeRef.current = d.meetingMode; setMeetingMode(d.meetingMode); } }
       startCapture();
       startSystemCapture();
     });
@@ -249,7 +265,7 @@ export function MeetingOverlay() {
         setActive(true);
         setDiarization(!!st.diarization);
         setHasDeepgramKey(!!st.hasDeepgramKey);
-        if (st.meetingMode) setMeetingMode(st.meetingMode);
+        if (st.meetingMode) { meetingModeRef.current = st.meetingMode; setMeetingMode(st.meetingMode); }
         startCapture();
         startSystemCapture();
       }
@@ -377,7 +393,15 @@ export function MeetingOverlay() {
                     disabled={!diarization || !hasDeepgramKey}
                     onClick={(e) => {
                       e.stopPropagation();
-                      window.electronAPI.setMeetingMode(mode).then((m) => setMeetingMode(m || mode));
+                      window.electronAPI.setMeetingMode(mode).then((m) => {
+                        const next = (m || mode) as 'call' | 'inperson';
+                        meetingModeRef.current = next;
+                        setMeetingMode(next);
+                        // EC live umschalten: Vor-Ort = aus (roh, mehrere Sprecher trennbar),
+                        // Call = an (Gegenstelle nicht ins Mikro). NS/AGC bleiben in beiden aus.
+                        const track = streamRef.current?.getAudioTracks?.()[0];
+                        track?.applyConstraints?.(micConstraints(next)).catch(() => { /* APM-Reconfig best effort */ });
+                      });
                     }}
                     className={cn(
                       'text-xs font-medium px-2.5 py-1 transition-colors',
