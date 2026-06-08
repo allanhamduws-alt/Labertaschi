@@ -36,7 +36,7 @@ jobs:
         working-directory: electron-menubar
         run: npm ci
 
-      - name: Build Mac (arm64 + x64)
+      - name: Build Mac (arm64)
         working-directory: electron-menubar
         run: |
           if [ -n "$CSC_LINK" ]; then
@@ -45,7 +45,7 @@ jobs:
             echo "Kein Signing-Zertifikat (CSC_LINK leer) -> unsignierter Build (nur DMG-Download)"
             export CSC_IDENTITY_AUTO_DISCOVERY=false
           fi
-          npm run build:universal
+          npm run build
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
