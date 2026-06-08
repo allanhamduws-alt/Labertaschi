@@ -124,6 +124,11 @@ export function MeetingDetail({ id, onBack }: MeetingDetailProps) {
               minute: '2-digit',
             })}
           </p>
+          {index.diarizationUsed && (
+            <p className="text-[11px] text-blue-500 mt-0.5">
+              Deepgram · {((index.diarizationSeconds ?? 0) / 60).toFixed(1)} Min · ~${(index.diarizationCostUsd ?? 0).toFixed(3)} · {index.diarizationSpeakers ?? 0} Sprecher
+            </p>
+          )}
         </div>
       </div>
 

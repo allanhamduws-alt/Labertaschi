@@ -49,8 +49,15 @@ const globeKeyManager = new GlobeKeyManager();
 // ============================================================================
 const AudioTeeManager = require('./audio-tee-manager');
 const audioTeeManager = new AudioTeeManager();
+const WindowsAudioManager = require('./windows-audio-manager');
+const windowsAudioManager = new WindowsAudioManager();
+// Plattformabhängiger System-Audio-Manager mit gleicher Schnittstelle: macOS = AudioTee
+// (Subprozess), Windows = WASAPI-Loopback (im Overlay-Renderer via getDisplayMedia).
+// Der MeetingController bleibt dadurch plattform-agnostisch.
+const systemAudioManager = process.platform === 'darwin' ? audioTeeManager : windowsAudioManager;
 const { createMeetingController } = require('./meeting/meeting-controller');
 const { createMeetingStore } = require('./meeting/meeting-store');
+const { emptyUsage } = require('./meeting/deepgram-usage');
 let meetingController = null;   // lazy in app.whenReady (braucht getStore + Pfade)
 let meetingStore = null;        // dito; von IPC-Handlern referenziert
 let meetingOverlayWindow = null;
@@ -139,6 +146,9 @@ function getStore() {
         // Mehr-Sprecher-Trennung im System-Kanal (Deepgram, Phase 2)
         deepgramApiKey: '',
         diarizationEnabled: false,
+        // Lokaler Deepgram-Verbrauchszähler (zuverlässig, da wir die gesendeten
+        // Audio-Sekunden exakt kennen): { totalSeconds, totalCostUsd, totalRequests, perMonth }
+        deepgramUsage: emptyUsage(),
       },
     });
   }
@@ -2134,6 +2144,13 @@ function setupIpcHandlers() {
   });
   ipcMain.on('meeting:mic-pcm', (_e, buf) => { if (meetingController) meetingController.onMicPcm(Buffer.from(buf)); });
   ipcMain.on('meeting:mic-level', (_e, lvl) => { if (meetingController) meetingController.onMicLevel(lvl); });
+  // Windows: System-Loopback-PCM kommt aus dem Overlay-Renderer (macOS nutzt AudioTee).
+  ipcMain.on('meeting:system-pcm', (_e, buf) => { windowsAudioManager.onSystemPcm(Buffer.from(buf)); });
+  // Pro-Session-Override der Sprecher-Trennung (Overlay-Toggle), ändert nicht den globalen Default.
+  ipcMain.handle('meeting:set-diarization', (_e, enabled) => (meetingController ? meetingController.setSessionDiarization(enabled) : false));
+  // Lokaler Deepgram-Verbrauchszähler
+  ipcMain.handle('deepgram:usage', () => { try { return getStore().get('deepgramUsage') || emptyUsage(); } catch { return emptyUsage(); } });
+  ipcMain.handle('deepgram:usage-reset', () => { try { getStore().set('deepgramUsage', emptyUsage()); return true; } catch { return false; } });
   ipcMain.handle('meetings:list', () => (meetingStore ? meetingStore.list() : []));
   ipcMain.handle('meetings:get', (_e, id) => (meetingStore ? meetingStore.get(id) : null));
   ipcMain.handle('meetings:delete', (_e, id) => (meetingStore ? meetingStore.remove(id) : false));
@@ -2485,6 +2502,24 @@ app.whenReady().then(() => {
   setupAutoUpdater();
 
   setupIpcHandlers();
+
+  // Windows: System-Audio-Loopback für getDisplayMedia freischalten. Der Handler
+  // liefert audio:'loopback' (gesamter System-Mix) + einen Bildschirm als Video-Quelle
+  // (auf Windows Pflicht; der Video-Track wird im Overlay-Renderer sofort verworfen).
+  // macOS bleibt unberührt — dort kommt das System-Audio über AudioTee.
+  if (process.platform !== 'darwin') {
+    try {
+      const { session, desktopCapturer } = require('electron');
+      session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+        desktopCapturer.getSources({ types: ['screen'] })
+          .then((sources) => callback(sources[0] ? { video: sources[0], audio: 'loopback' } : {}))
+          .catch(() => callback({}));
+      });
+    } catch (e) {
+      console.error('setDisplayMediaRequestHandler failed:', e);
+    }
+  }
+
   setupTray();
   createRecordingWindow();
 
@@ -2496,7 +2531,7 @@ app.whenReady().then(() => {
   meetingController = createMeetingController({
     store: getStore(),
     meetingStore,
-    audioTee: audioTeeManager,
+    audioTee: systemAudioManager,
     getOverlayWindow: () => createMeetingOverlayWindow(),
     getMainWindow: () => mainWindow,
     fetchImpl: (...args) => globalThis.fetch(...args),
@@ -2547,7 +2582,7 @@ app.whenReady().then(() => {
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   globeKeyManager.stop();
-  audioTeeManager.stop();
+  systemAudioManager.stop();
   if (meetingController && meetingController.isActive()) {
     Promise.resolve(meetingController.stop()).catch(() => {});
   }

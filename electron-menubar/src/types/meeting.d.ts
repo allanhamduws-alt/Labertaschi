@@ -10,6 +10,11 @@ export interface MeetingIndexEntry {
   preview: string; // erste ~120 Zeichen des Transkripts
   hasSummary: boolean;
   favorite: boolean;
+  // Deepgram-Diarization-Tracking (gesetzt beim Stop, nur bei Erfolg)
+  diarizationUsed?: boolean;
+  diarizationSeconds?: number;
+  diarizationCostUsd?: number;
+  diarizationSpeakers?: number;
 }
 
 export interface MeetingSegment {

@@ -59,12 +59,22 @@ export function MeetingOverlay() {
   const [micLevel, setMicLevel] = useState(0);
   const [systemLevel, setSystemLevel] = useState(0);
   const [liveSegments, setLiveSegments] = useState<MeetingSegment[]>([]);
+  const [diarization, setDiarization] = useState(false);
+  const [hasDeepgramKey, setHasDeepgramKey] = useState(false);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
   const srcNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const pcmBufferRef = useRef<Float32Array>(new Float32Array(0));
+
+  // System-Loopback-Capture (nur Windows; macOS nimmt System-Audio über AudioTee im Main auf)
+  const sysAudioCtxRef = useRef<AudioContext | null>(null);
+  const sysWorkletRef = useRef<AudioWorkletNode | null>(null);
+  const sysSrcRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const sysStreamRef = useRef<MediaStream | null>(null);
+  const sysPcmBufferRef = useRef<Float32Array>(new Float32Array(0));
+  const isWindows = typeof navigator !== 'undefined' && /windows/i.test(navigator.userAgent);
 
   const TARGET_RATE = 16000;
   const CHUNK_SAMPLES = TARGET_RATE; // ~1 second
@@ -131,8 +141,72 @@ export function MeetingOverlay() {
     }
   };
 
+  const stopSystemCapture = () => {
+    sysWorkletRef.current?.disconnect();
+    sysSrcRef.current?.disconnect();
+    sysStreamRef.current?.getTracks().forEach((t) => t.stop());
+    sysAudioCtxRef.current?.close();
+    sysWorkletRef.current = null;
+    sysSrcRef.current = null;
+    sysStreamRef.current = null;
+    sysAudioCtxRef.current = null;
+    sysPcmBufferRef.current = new Float32Array(0);
+  };
+
+  // Windows: System-Mix per Loopback abgreifen (Pendant zu AudioTee auf macOS).
+  // getDisplayMedia liefert dank des Main-Handlers audio:'loopback'; der Video-Track
+  // ist auf Windows Pflicht und wird sofort verworfen.
+  const startSystemCapture = async () => {
+    if (!isWindows || sysAudioCtxRef.current) return;
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ audio: true, video: true });
+      stream.getVideoTracks().forEach((t) => { t.stop(); stream.removeTrack(t); });
+      if (stream.getAudioTracks().length === 0) {
+        stream.getTracks().forEach((t) => t.stop());
+        console.error('MeetingOverlay: kein System-Audio-Track (Loopback)');
+        return;
+      }
+      sysStreamRef.current = stream;
+
+      const ctx = new AudioContext();
+      sysAudioCtxRef.current = ctx;
+
+      await ctx.audioWorklet.addModule(new URL('./mic-worklet.js', import.meta.url));
+
+      const srcNode = ctx.createMediaStreamSource(stream);
+      sysSrcRef.current = srcNode;
+
+      const node = new AudioWorkletNode(ctx, 'mic-processor');
+      sysWorkletRef.current = node;
+
+      srcNode.connect(node);
+
+      node.port.onmessage = (e: MessageEvent<Float32Array>) => {
+        const f32: Float32Array = e.data;
+        const downsampled = downsample(f32, ctx.sampleRate, TARGET_RATE);
+
+        const prev = sysPcmBufferRef.current;
+        const merged = new Float32Array(prev.length + downsampled.length);
+        merged.set(prev);
+        merged.set(downsampled, prev.length);
+        sysPcmBufferRef.current = merged;
+
+        if (sysPcmBufferRef.current.length >= CHUNK_SAMPLES) {
+          const chunk = sysPcmBufferRef.current.slice(0, CHUNK_SAMPLES);
+          sysPcmBufferRef.current = sysPcmBufferRef.current.slice(CHUNK_SAMPLES);
+
+          const int16 = floatToInt16(chunk);
+          // Pegel/gotSystemPcm berechnet der Controller aus dem PCM (wie bei AudioTee).
+          window.electronAPI.sendSystemPcm(int16.buffer as ArrayBuffer);
+        }
+      };
+    } catch (err) {
+      console.error('MeetingOverlay: system loopback error', err);
+    }
+  };
+
   useEffect(() => {
-    window.electronAPI.onMeetingStarted(() => {
+    window.electronAPI.onMeetingStarted((d) => {
       setActive(true);
       setHealth('green');
       setReason('');
@@ -140,11 +214,14 @@ export function MeetingOverlay() {
       setMicLevel(0);
       setSystemLevel(0);
       setLiveSegments([]);
+      if (d) { setDiarization(!!d.diarization); setHasDeepgramKey(!!d.hasDeepgramKey); }
       startCapture();
+      startSystemCapture();
     });
 
     window.electronAPI.onMeetingStopped(() => {
       stopCapture();
+      stopSystemCapture();
       setActive(false);
       setExpanded(false);
       setMicLevel(0);
@@ -169,12 +246,16 @@ export function MeetingOverlay() {
     window.electronAPI.getMeetingStatus().then((st) => {
       if (st && st.active) {
         setActive(true);
+        setDiarization(!!st.diarization);
+        setHasDeepgramKey(!!st.hasDeepgramKey);
         startCapture();
+        startSystemCapture();
       }
     });
 
     return () => {
       stopCapture();
+      stopSystemCapture();
     };
   }, []);
 
@@ -264,6 +345,28 @@ export function MeetingOverlay() {
           className="w-[340px] max-h-[180px] overflow-y-auto px-2 py-1.5 rounded-xl backdrop-blur border bg-card/95 border-border/50 shadow-md"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
+          {/* Pro-Session-Schalter: Sprecher-Trennung (Deepgram). Bei 1:1-Calls aus = keine Deepgram-Kosten. */}
+          <div className="flex items-center justify-between mb-1.5 pb-1.5 border-b border-border/40">
+            <span className="text-[11px] text-muted-foreground">Sprecher-Trennung</span>
+            <button
+              disabled={!hasDeepgramKey}
+              onClick={(e) => {
+                e.stopPropagation();
+                window.electronAPI.setMeetingDiarization(!diarization).then((v) => setDiarization(!!v));
+              }}
+              className={cn(
+                'text-[10px] px-1.5 py-0.5 rounded-full border transition-colors',
+                !hasDeepgramKey
+                  ? 'opacity-40 cursor-not-allowed border-border/40 text-muted-foreground'
+                  : diarization
+                    ? 'bg-primary/15 border-primary/40 text-primary'
+                    : 'border-border/50 text-muted-foreground hover:text-foreground'
+              )}
+              title={hasDeepgramKey ? 'Mehrere Gegenstellen-Sprecher per Deepgram trennen' : 'Deepgram-Key fehlt (in den Einstellungen hinterlegen)'}
+            >
+              {diarization ? 'an' : 'aus'}
+            </button>
+          </div>
           {liveSegments.length === 0 ? (
             <p className="text-[11px] text-muted-foreground">Transkript erscheint, sobald gesprochen wird …</p>
           ) : (

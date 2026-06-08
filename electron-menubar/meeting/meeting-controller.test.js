@@ -72,6 +72,70 @@ describe('MeetingController (Integration mit Fakes)', () => {
     expect(tee.isRunning).toBe(false);
   });
 
+  it('trackt Deepgram-Usage bei aktivierter Diarisierung', async () => {
+    const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'paply-ctl3-'));
+    const store = fakeStore({ diarizationEnabled: true, deepgramApiKey: 'dk' });
+    const meetingStore = createMeetingStore({ baseDir, store });
+    const tee = new FakeTee();
+    const ctl = createMeetingController({
+      store, meetingStore, audioTee: tee,
+      getOverlayWindow: () => null, getMainWindow: () => null,
+      fetchImpl: fakeFetch, windowSeconds: 1, sampleRate: 100,
+      // injizierte Fake-Diarisierung → ein System-Sprecher
+      diarize: async () => ([{ tStart: 0, tEnd: 1, speaker: 'Sprecher 1', channel: 'system', text: 'Hallo' }]),
+      now: () => 1700000000000,
+    });
+
+    const { id } = ctl.start();
+    tee.emit('pcm', Buffer.alloc(200)); // genau ein System-Fenster → audio_system.wav entsteht
+    await ctl.stop();
+
+    const full = meetingStore.get(id);
+    expect(full.index.diarizationUsed).toBe(true);
+    expect(full.index.diarizationSeconds).toBeGreaterThan(0);
+    expect(full.index.diarizationSpeakers).toBe(1);
+    expect(full.index.diarizationCostUsd).toBeGreaterThanOrEqual(0);
+
+    const usage = store.get('deepgramUsage');
+    expect(usage.totalRequests).toBe(1);
+    expect(usage.totalSeconds).toBeGreaterThan(0);
+    expect(usage.totalCostUsd).toBeGreaterThan(0);
+    expect(Object.keys(usage.perMonth).length).toBe(1);
+  });
+
+  it('ohne Diarisierung kein Usage-Tracking (diarizationUsed bleibt false)', async () => {
+    const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'paply-ctl4-'));
+    const store = fakeStore(); // diarizationEnabled default false
+    const meetingStore = createMeetingStore({ baseDir, store });
+    const tee = new FakeTee();
+    const ctl = createMeetingController({
+      store, meetingStore, audioTee: tee,
+      getOverlayWindow: () => null, getMainWindow: () => null,
+      fetchImpl: fakeFetch, windowSeconds: 1, sampleRate: 100,
+      now: () => 1700000000000,
+    });
+    const { id } = ctl.start();
+    tee.emit('pcm', Buffer.alloc(200));
+    await ctl.stop();
+    expect(meetingStore.get(id).index.diarizationUsed).toBe(false);
+    expect(store.get('deepgramUsage')).toBeUndefined();
+  });
+
+  it('setSessionDiarization überschreibt den Default für die laufende Aufnahme', () => {
+    const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'paply-ctl5-'));
+    const store = fakeStore({ diarizationEnabled: true, deepgramApiKey: 'dk' });
+    const meetingStore = createMeetingStore({ baseDir, store });
+    const ctl = createMeetingController({
+      store, meetingStore, audioTee: new FakeTee(),
+      getOverlayWindow: () => null, getMainWindow: () => null,
+      fetchImpl: fakeFetch, windowSeconds: 1, sampleRate: 100, now: () => 1700000000000,
+    });
+    ctl.start();
+    expect(ctl.getStatus().diarization).toBe(true);
+    ctl.setSessionDiarization(false);
+    expect(ctl.getStatus().diarization).toBe(false);
+  });
+
   it('isActive spiegelt den Zustand', () => {
     const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'paply-ctl2-'));
     const store = fakeStore();

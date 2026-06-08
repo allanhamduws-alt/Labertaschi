@@ -14,6 +14,7 @@ const { mergeSegments } = require('./transcript-merger');
 const { evaluateHealth } = require('./health-monitor');
 const { generateMeetingSummary } = require('./summary');
 const { diarizeWithDeepgram } = require('./diarization');
+const { wavDurationSeconds, estimateDeepgramCostUsd, monthKey, accumulateUsage } = require('./deepgram-usage');
 
 function speakerLabel(s) {
   if (s === 'me') return 'Ich';
@@ -85,6 +86,9 @@ function createMeetingController(deps) {
   let permissionDenied = false;
   let systemAudioError = null;
   let gotSystemPcm = false;
+  // Pro-Session-Entscheidung zur Sprecher-Trennung (Snapshot des globalen Defaults
+  // beim Start, per Overlay-Toggle für DIESE Aufnahme überschreibbar).
+  let sessionDiarization = false;
 
   // Finale Audiodateien werden beim Stop aus den Chunk-Dateien gestreamt (RAM-schonend).
 
@@ -164,6 +168,7 @@ function createMeetingController(deps) {
     micSegs = []; sysSegs = []; lastTextByChannel = { mic: '', system: '' };
     micLevel = 0; systemLevel = 0; micWriteOk = true; diskError = false; permissionDenied = false; systemAudioError = null; gotSystemPcm = false;
     lastSystemPcmMs = startedAtMs; // Stille-Erkennung erst nach Schwelle
+    sessionDiarization = !!store.get('diarizationEnabled');
 
     queue = new TranscriptionQueue({
       apiKey: store.get('groqApiKey'),
@@ -200,7 +205,11 @@ function createMeetingController(deps) {
     audioTee.start({ sampleRate, chunkDurationMs: 200, excludeProcesses: excludePid ? [excludePid] : undefined });
 
     overlayWin = getOverlayWindow ? getOverlayWindow() : null;
-    _emit('meeting:started', { id: sessionId });
+    _emit('meeting:started', {
+      id: sessionId,
+      diarization: sessionDiarization,
+      hasDeepgramKey: !!store.get('deepgramApiKey'),
+    });
     healthTimer = setInterval(_emitHealth, 1000);
 
     return { id: sessionId };
@@ -252,13 +261,36 @@ function createMeetingController(deps) {
       // Optionale Sprecher-Diarisierung des System-Kanals (Deepgram, Phase 2):
       // über die KOMPLETTE audio_system.wav -> konsistente Sprecher-IDs übers ganze Meeting.
       let sysForMerge = sysSegs;
+      let diarizationInfo = { diarizationUsed: false, diarizationSeconds: 0, diarizationCostUsd: 0, diarizationSpeakers: 0 };
       const deepgramKey = store.get('deepgramApiKey');
-      if (store.get('diarizationEnabled') && deepgramKey) {
+      // sessionDiarization (Snapshot/Overlay-Override) statt dem globalen Default —
+      // so kann der Nutzer Deepgram pro 1:1-Gespräch weglassen.
+      if (sessionDiarization && deepgramKey) {
         try {
           const sysAudioPath = nodePath.join(meetingDir, 'audio_system.wav');
           if (fs.existsSync(sysAudioPath)) {
             const diarized = await diarize(sysAudioPath, { apiKey: deepgramKey, language, fetchImpl });
-            if (diarized && diarized.length) sysForMerge = diarized;
+            if (diarized && diarized.length) {
+              sysForMerge = diarized;
+              // Usage zuverlässig aus der gesendeten WAV-Größe ableiten (lokaler Zähler).
+              const seconds = wavDurationSeconds(fs.statSync(sysAudioPath).size, { sampleRate, channels: 1 });
+              const costUsd = estimateDeepgramCostUsd(seconds, { multilingual: language !== 'en', diarize: true });
+              const speakers = new Set(diarized.map((s) => s.speaker)).size;
+              diarizationInfo = {
+                diarizationUsed: true,
+                diarizationSeconds: Math.round(seconds),
+                diarizationCostUsd: Number(costUsd.toFixed(4)),
+                diarizationSpeakers: speakers,
+              };
+              // Globalen Verbrauchszähler fortschreiben (nur bei Erfolg, best effort).
+              if (typeof store.set === 'function') {
+                try {
+                  store.set('deepgramUsage', accumulateUsage(store.get('deepgramUsage'), {
+                    seconds, costUsd, month: monthKey(new Date(now())),
+                  }));
+                } catch { /* Zähler ist best effort */ }
+              }
+            }
           }
         } catch { /* Diarisierung fehlgeschlagen — Groq-Transkript ('Gegenstelle') bleibt erhalten */ }
       }
@@ -270,7 +302,7 @@ function createMeetingController(deps) {
       const preview = (merged[0] && merged[0].text ? merged[0].text : '').slice(0, 120);
       const speakerCount = new Set(merged.map((s) => s.speaker)).size || 1;
       const title = new Date(startedAtMs).toLocaleString('de-DE');
-      try { meetingStore.finalizeIndex(id, { durationMs, preview, speakerCount, title }); } catch { /* Disk-Fehler */ }
+      try { meetingStore.finalizeIndex(id, { durationMs, preview, speakerCount, title, ...diarizationInfo }); } catch { /* Disk-Fehler */ }
 
       // KI-Protokoll (best effort)
       try {
@@ -305,7 +337,19 @@ function createMeetingController(deps) {
   // Pull-Modell: das Overlay fragt beim Mount den aktuellen Zustand ab,
   // falls das 'meeting:started'-Push-Event verloren ging (Fenster noch nicht geladen).
   function getStatus() {
-    return { active, id: sessionId };
+    return {
+      active,
+      id: sessionId,
+      diarization: active ? sessionDiarization : !!store.get('diarizationEnabled'),
+      hasDeepgramKey: !!store.get('deepgramApiKey'),
+    };
+  }
+
+  // Pro-Session-Override der Sprecher-Trennung (Overlay-Toggle): gilt nur für die
+  // laufende Aufnahme, ändert den globalen Default (diarizationEnabled) nicht.
+  function setSessionDiarization(enabled) {
+    sessionDiarization = !!enabled;
+    return sessionDiarization;
   }
 
   async function regenerateSummary(id) {
@@ -358,7 +402,7 @@ function createMeetingController(deps) {
     return true;
   }
 
-  return { start, stop, isActive, getStatus, onMicPcm, onMicLevel, regenerateSummary, retranscribe };
+  return { start, stop, isActive, getStatus, setSessionDiarization, onMicPcm, onMicLevel, regenerateSummary, retranscribe };
 }
 
 module.exports = { createMeetingController, transcriptToText, speakerLabel };

@@ -57,6 +57,11 @@ function createMeetingStore({ baseDir, store }) {
       preview: '',
       hasSummary: false,
       favorite: false,
+      // Deepgram-Diarization-Tracking (gesetzt beim Stop, nur bei Erfolg)
+      diarizationUsed: false,
+      diarizationSeconds: 0,
+      diarizationCostUsd: 0,
+      diarizationSpeakers: 0,
     };
 
     const entries = _indexList();

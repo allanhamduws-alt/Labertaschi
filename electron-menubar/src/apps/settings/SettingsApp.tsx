@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
+import { DeepgramUsageCard } from '@/components/DeepgramUsageCard';
 import type { Settings, Platform } from '@/types/electron';
 
 type Tab = 'api' | 'shortcuts' | 'behavior';
@@ -62,10 +63,12 @@ export function SettingsApp() {
         ]);
         setSettings(settingsData);
         setPlatform(platformData);
-        setGroqKey(settingsData.groqApiKey || '');
+        // Keys maskiert anzeigen (konsistent mit Dashboard) — der echte Key bleibt
+        // im Main-Prozess, nicht im Renderer-State. Speichern nur, wenn neu getippt.
+        setGroqKey(settingsData.groqApiKey ? '••••••••••••••••' : '');
         setShortcut(settingsData.shortcut || '');
         setMeetingHotkey(settingsData.meetingHotkey || '');
-        setDeepgramKey(settingsData.deepgramApiKey || '');
+        setDeepgramKey(settingsData.deepgramApiKey ? '••••••••••••••••' : '');
       } catch (error) {
         console.error('Failed to load settings:', error);
       }
@@ -187,7 +190,7 @@ export function SettingsApp() {
                   </button>
                 </div>
                 <Button
-                  onClick={() => handleSave('groqApiKey', groqKey)}
+                  onClick={() => { if (groqKey && !groqKey.includes('•')) handleSave('groqApiKey', groqKey); }}
                   disabled={isSaving}
                 >
                   Speichern
@@ -231,7 +234,7 @@ export function SettingsApp() {
                   </button>
                 </div>
                 <Button
-                  onClick={() => handleSave('deepgramApiKey', deepgramKey)}
+                  onClick={() => { if (deepgramKey && !deepgramKey.includes('•')) handleSave('deepgramApiKey', deepgramKey); }}
                   disabled={isSaving}
                 >
                   Speichern
@@ -239,6 +242,8 @@ export function SettingsApp() {
               </div>
             </CardContent>
           </Card>
+
+          <DeepgramUsageCard />
 
         </div>
       )}
