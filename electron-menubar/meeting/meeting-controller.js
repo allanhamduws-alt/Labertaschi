@@ -13,8 +13,7 @@ const { TranscriptionQueue } = require('./transcription-queue');
 const { mergeSegments } = require('./transcript-merger');
 const { evaluateHealth } = require('./health-monitor');
 const { generateMeetingSummary } = require('./summary');
-const { diarizeWithDeepgram, assignSpeakers } = require('./diarization');
-const { wavDurationSeconds, estimateDeepgramCostUsd, monthKey, accumulateUsage } = require('./deepgram-usage');
+const { diarizeLocal } = require('./diarize-local');
 
 function speakerLabel(s) {
   if (s === 'me') return 'Ich';
@@ -46,7 +45,7 @@ function createMeetingController(deps) {
     fetchImpl, windowSeconds = 30, sampleRate = 16000, excludePid,
     chunkMinSeconds, chunkMaxSeconds, silenceRms,
     speechGate = 0.0008, // Stille-Gate: tief genug, dass leise Stimmen bleiben, hoch genug für Digital-Stille
-    diarize = diarizeWithDeepgram,
+    diarizeSegments = diarizeLocal, // lokale Sprecher-Trennung (injizierbar für Tests)
     keepAudio = false, // true = finale Audiodateien NICHT löschen (Debug/Test/Loopback-Validierung)
     now = () => Date.now(),
   } = deps;
@@ -269,47 +268,36 @@ function createMeetingController(deps) {
         }
       } catch { /* Audio-Finalisierung fehlgeschlagen — Chunk-Dateien bleiben als Fallback */ }
 
-      // Optionale Sprecher-Diarisierung über Deepgram (Phase 2), über die KOMPLETTE
-      // Kanal-Audiodatei -> konsistente Sprecher-IDs übers ganze Meeting.
+      // LOKALE Sprecher-Diarisierung (ohne Cloud, kostenlos, kein API-Key): pro Transkript-
+      // Segment werden akustische Merkmale (Grundton/Pitch) berechnet und in N Sprecher
+      // geclustert. Funktioniert bei EINEM Mikrofon (mehrere Personen am selben Mikro) —
+      // genau der Fall, an dem Deepgrams kanalbasierte Trennung scheitert. Groqs Transkript-
+      // TEXT bleibt vollständig erhalten; nur das Sprecher-Label pro Segment wird gesetzt.
       // Modus 'call' (Default): System-Kanal trennen (Gegenstelle), Mikro bleibt "Ich".
       // Modus 'inperson': Mikrofon-Kanal trennen (mehrere Leute vor Ort an EINEM Mikro).
       let micForMerge = micSegs;
       let sysForMerge = sysSegs;
       let diarizationInfo = { diarizationUsed: false, diarizationSeconds: 0, diarizationCostUsd: 0, diarizationSpeakers: 0 };
-      const deepgramKey = store.get('deepgramApiKey');
-      if (sessionDiarization && deepgramKey) {
-        // Vor-Ort → Mikrofon trennen, sonst → System (Gegenstelle).
+      if (sessionDiarization) {
         const targetChannel = sessionMeetingMode === 'inperson' ? 'mic' : 'system';
+        const segs = targetChannel === 'mic' ? micSegs : sysSegs;
         try {
           const targetPath = nodePath.join(meetingDir, `audio_${targetChannel}.wav`);
-          if (fs.existsSync(targetPath)) {
-            const diarized = await diarize(targetPath, { apiKey: deepgramKey, language, fetchImpl });
-            if (diarized && diarized.length) {
-              // WICHTIG: Groqs TEXT behalten, nur Deepgrams SPRECHER-Labels per
-              // Zeitabgleich übernehmen (Deepgram-Transkript ist schlechter als Groq).
-              if (targetChannel === 'mic') micForMerge = assignSpeakers(micSegs, diarized);
-              else sysForMerge = assignSpeakers(sysSegs, diarized);
-              // Usage zuverlässig aus der gesendeten WAV-Größe ableiten (lokaler Zähler).
-              const seconds = wavDurationSeconds(fs.statSync(targetPath).size, { sampleRate, channels: 1 });
-              const costUsd = estimateDeepgramCostUsd(seconds, { multilingual: language !== 'en', diarize: true });
-              const speakers = new Set(diarized.map((s) => s.speaker)).size;
+          if (fs.existsSync(targetPath) && segs.length) {
+            const buf = fs.readFileSync(targetPath);
+            const pcm = new Int16Array(buf.buffer, buf.byteOffset + 44, Math.max(0, (buf.length - 44) >> 1));
+            const labeled = diarizeSegments(segs, pcm, { sampleRate });
+            if (Array.isArray(labeled) && labeled.length) {
+              if (targetChannel === 'mic') micForMerge = labeled; else sysForMerge = labeled;
               diarizationInfo = {
                 diarizationUsed: true,
-                diarizationSeconds: Math.round(seconds),
-                diarizationCostUsd: Number(costUsd.toFixed(4)),
-                diarizationSpeakers: speakers,
+                diarizationSeconds: 0, // lokal: keine Sekunden-/Kostenabrechnung
+                diarizationCostUsd: 0,
+                diarizationSpeakers: new Set(labeled.map((s) => s.speaker)).size,
               };
-              // Globalen Verbrauchszähler fortschreiben (nur bei Erfolg, best effort).
-              if (typeof store.set === 'function') {
-                try {
-                  store.set('deepgramUsage', accumulateUsage(store.get('deepgramUsage'), {
-                    seconds, costUsd, month: monthKey(new Date(now())),
-                  }));
-                } catch { /* Zähler ist best effort */ }
-              }
             }
           }
-        } catch { /* Diarisierung fehlgeschlagen — Groq-Transkript bleibt erhalten */ }
+        } catch { /* lokale Diarisierung fehlgeschlagen — Groqs Transkript bleibt erhalten */ }
       }
 
       const merged = mergeSegments(micForMerge, sysForMerge);
@@ -426,12 +414,14 @@ function createMeetingController(deps) {
 
     const windowBytes = (windowSeconds || 30) * sampleRate * 2;
     let any = false;
+    const channelPcm = {}; // Int16-PCM je Kanal (für die lokale Diarisierung wiederverwendet)
     for (const channel of ['mic', 'system']) {
       const wavPath = path.join(meetingDir, `audio_${channel}.wav`);
       if (!fs.existsSync(wavPath)) continue; // Audio wurde nach dem Stop gelöscht
       any = true;
       const buf = fs.readFileSync(wavPath);
       const pcm = buf.subarray(44); // WAV-Header (44 Bytes) überspringen
+      channelPcm[channel] = new Int16Array(buf.buffer, buf.byteOffset + 44, Math.max(0, (buf.length - 44) >> 1));
       let cumOffset = 0;
       for (let off = 0; off < pcm.length; off += windowBytes) {
         const slice = pcm.subarray(off, Math.min(off + windowBytes, pcm.length));
@@ -445,7 +435,16 @@ function createMeetingController(deps) {
     }
     if (!any) return false;
     await q.idle();
-    const merged = mergeSegments(mic, sys);
+    // Lokale Sprecher-Trennung beim Neu-Transkribieren (wenn aktiviert): trennt mehrere
+    // Personen am Mikrofon (Vor-Ort-Fall). So lassen sich bestehende Aufnahmen nachträglich
+    // in Sprecher auftrennen, ohne neu aufzunehmen.
+    let micF = mic; let sysF = sys;
+    if (store.get('diarizationEnabled')) {
+      try {
+        if (channelPcm.mic && mic.length > 1) micF = diarizeSegments(mic, channelPcm.mic, { sampleRate });
+      } catch { /* Trennung best effort — Text bleibt erhalten */ }
+    }
+    const merged = mergeSegments(micF, sysF);
     const full = meetingStore.get(id);
     meetingStore.saveTranscript(id, { segments: merged, language: (full && full.transcript.language) || store.get('language') });
     return true;

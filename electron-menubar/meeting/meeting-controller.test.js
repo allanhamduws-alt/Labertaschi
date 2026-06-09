@@ -80,17 +80,17 @@ describe('MeetingController (Integration mit Fakes)', () => {
     expect(tee.isRunning).toBe(false);
   });
 
-  it('trackt Deepgram-Usage bei aktivierter Diarisierung', async () => {
+  it('diarisiert lokal bei aktivierter Trennung (ohne Cloud, ohne Kosten)', async () => {
     const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'paply-ctl3-'));
-    const store = fakeStore({ diarizationEnabled: true, deepgramApiKey: 'dk' });
+    const store = fakeStore({ diarizationEnabled: true });
     const meetingStore = createMeetingStore({ baseDir, store });
     const tee = new FakeTee();
     const ctl = createMeetingController({
       store, meetingStore, audioTee: tee,
       getOverlayWindow: () => null, getMainWindow: () => null,
       fetchImpl: fakeFetch, windowSeconds: 1, sampleRate: 100,
-      // injizierte Fake-Diarisierung → ein System-Sprecher
-      diarize: async () => ([{ tStart: 0, tEnd: 1, speaker: 'Sprecher 1', channel: 'system', text: 'Hallo' }]),
+      // injizierte lokale Diarisierung → labelt jedes Segment mit einem Sprecher
+      diarizeSegments: (segs) => segs.map((s) => ({ ...s, speaker: 'Sprecher 1' })),
       now: () => 1700000000000,
     });
 
@@ -100,15 +100,10 @@ describe('MeetingController (Integration mit Fakes)', () => {
 
     const full = meetingStore.get(id);
     expect(full.index.diarizationUsed).toBe(true);
-    expect(full.index.diarizationSeconds).toBeGreaterThan(0);
     expect(full.index.diarizationSpeakers).toBe(1);
-    expect(full.index.diarizationCostUsd).toBeGreaterThanOrEqual(0);
-
-    const usage = store.get('deepgramUsage');
-    expect(usage.totalRequests).toBe(1);
-    expect(usage.totalSeconds).toBeGreaterThan(0);
-    expect(usage.totalCostUsd).toBeGreaterThan(0);
-    expect(Object.keys(usage.perMonth).length).toBe(1);
+    // Lokal: keine Cloud-Kosten, kein Deepgram-Usage-Tracking
+    expect(full.index.diarizationCostUsd).toBe(0);
+    expect(store.get('deepgramUsage')).toBeUndefined();
   });
 
   it('ohne Diarisierung kein Usage-Tracking (diarizationUsed bleibt false)', async () => {
@@ -148,15 +143,13 @@ describe('MeetingController (Integration mit Fakes)', () => {
     const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'paply-ctl6-'));
     const store = fakeStore({ diarizationEnabled: true, deepgramApiKey: 'dk' });
     const meetingStore = createMeetingStore({ baseDir, store });
-    const diarizeCalls = [];
+    let diarizeCallCount = 0;
     const ctl = createMeetingController({
       store, meetingStore, audioTee: new FakeTee(),
       getOverlayWindow: () => null, getMainWindow: () => null,
       fetchImpl: fakeFetch, windowSeconds: 1, sampleRate: 100,
-      diarize: async (audioPath) => {
-        diarizeCalls.push(audioPath);
-        return [{ tStart: 0, tEnd: 1, speaker: 'Sprecher 1', channel: 'system', text: 'Vor Ort' }];
-      },
+      // lokale Diarisierung: labelt die übergebenen Segmente; gibt eigenen Text NICHT vor
+      diarizeSegments: (segs) => { diarizeCallCount++; return segs.map((s) => ({ ...s, speaker: 'Sprecher 1' })); },
       now: () => 1700000000000,
     });
 
@@ -164,16 +157,14 @@ describe('MeetingController (Integration mit Fakes)', () => {
     expect(ctl.getStatus().meetingMode).toBe('call');
     ctl.setSessionMeetingMode('inperson');
     expect(ctl.getStatus().meetingMode).toBe('inperson');
-    ctl.onMicPcm(signal()); // ein Mikro-Fenster → audio_mic.wav entsteht
+    ctl.onMicPcm(signal()); // ein Mikro-Fenster → audio_mic.wav entsteht (System-Kanal bleibt leer)
     await ctl.stop();
 
-    // Deepgram wurde auf die MIKROFON-Datei angewendet
-    expect(diarizeCalls.some((p) => p.endsWith('audio_mic.wav'))).toBe(true);
+    // Im inperson-Modus wird der MIKROFON-Kanal diarisiert (System-Segmente sind leer → kein
+    // System-Aufruf). Das Sprecher-Label landet auf dem mic-Segment, Groqs TEXT bleibt erhalten.
+    expect(diarizeCallCount).toBe(1);
     const segs = meetingStore.get(id).transcript.segments;
-    // Deepgrams Sprecher-Label landet auf dem mic-Segment, ABER Groqs TEXT bleibt erhalten
     expect(segs.some((s) => s.channel === 'mic' && s.speaker === 'Sprecher 1' && s.text === 'Testsatz')).toBe(true);
-    // Deepgrams eigener Text ('Vor Ort') wird NICHT übernommen
-    expect(segs.some((s) => s.text === 'Vor Ort')).toBe(false);
   });
 
   it('Stille-Gate: stille Chunks werden NICHT transkribiert (keine Halluzination)', async () => {
