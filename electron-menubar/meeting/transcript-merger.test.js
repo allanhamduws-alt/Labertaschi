@@ -1,5 +1,31 @@
 import { describe, it, expect } from 'vitest';
-import { mergeSegments, suppressBleed } from './transcript-merger.js';
+import { mergeSegments, suppressBleed, canonicalizeSpeakerLabels } from './transcript-merger.js';
+
+describe('canonicalizeSpeakerLabels', () => {
+  it('verankert „Ich" am zuerst sprechenden Mikro-Sprecher (auch wenn das LLM die Labels vertauscht hat)', () => {
+    // LLM hat „Sprecher 2" als ersten (= Gerätebesitzer) gruppiert und „me" auf den Antworter gelegt
+    const segs = [
+      { speaker: 'Sprecher 2', channel: 'mic', text: 'Anissa, wie gehts?' },
+      { speaker: 'me', channel: 'mic', text: 'Nein.' },
+      { speaker: 'Sprecher 2', channel: 'mic', text: 'Sag mal, was in der Schule?' },
+      { speaker: 'me', channel: 'mic', text: 'Deutsch.' },
+    ];
+    const out = canonicalizeSpeakerLabels(segs);
+    expect(out.map((s) => s.speaker)).toEqual(['me', 'Sprecher 2', 'me', 'Sprecher 2']);
+  });
+  it('behält die Gruppierung, nummeriert weitere Sprecher nach Auftreten', () => {
+    const segs = [
+      { speaker: 'x', channel: 'mic' }, { speaker: 'y', channel: 'mic' }, { speaker: 'z', channel: 'mic' }, { speaker: 'y', channel: 'mic' },
+    ];
+    expect(canonicalizeSpeakerLabels(segs).map((s) => s.speaker)).toEqual(['me', 'Sprecher 2', 'Sprecher 3', 'Sprecher 2']);
+  });
+  it('Mikro- und System-Sprecher getrennt kanonisiert', () => {
+    const segs = [
+      { speaker: 'me', channel: 'mic' }, { speaker: 'other', channel: 'system' }, { speaker: 'Gegenstelle 2', channel: 'system' },
+    ];
+    expect(canonicalizeSpeakerLabels(segs).map((s) => s.speaker)).toEqual(['me', 'other', 'Gegenstelle 2']);
+  });
+});
 
 describe('mergeSegments', () => {
   it('verschmilzt zwei Kanäle chronologisch mit Sprecher-Labels', () => {

@@ -266,7 +266,8 @@ describe('MeetingController (Integration mit Fakes)', () => {
     expect(refineCalled).toBe(true);
     const segs = meetingStore.get(id).transcript.segments;
     expect(segs.length).toBeGreaterThanOrEqual(2);
-    expect(segs.every((s) => s.speaker === 'mama')).toBe(true); // korrigierte Labels gespeichert
+    // Fake-Refiner führt beide Segmente auf EINEN Sprecher zusammen → nach Kanonisierung 1 Mikro-Sprecher ('me')
+    expect(new Set(segs.map((s) => s.speaker))).toEqual(new Set(['me']));
   });
 
   it('Detektor-Fehler (unsigniert/fehlt): Fallback auf Signal-Heuristik (System wird einbezogen)', async () => {

@@ -10,7 +10,7 @@ const { encodeWav, concatWavFiles } = require('../audio/wav-encoder');
 const { rms, maxFrameRms } = require('../audio/pcm-utils');
 const { ChunkAccumulator } = require('./chunk-accumulator');
 const { TranscriptionQueue } = require('./transcription-queue');
-const { mergeSegments, suppressBleed } = require('./transcript-merger');
+const { mergeSegments, suppressBleed, canonicalizeSpeakerLabels } = require('./transcript-merger');
 const { evaluateHealth } = require('./health-monitor');
 const { generateMeetingSummary } = require('./summary');
 const { diarizeLocal } = require('./diarize-local');
@@ -362,6 +362,9 @@ function createMeetingController(deps) {
           if (Array.isArray(refined) && refined.length === merged.length) merged = refined;
         } catch { /* Korrektur best effort — akustische Labels behalten */ }
       }
+      // „Ich" deterministisch auf den zuerst sprechenden Mikro-Sprecher verankern (Gerätebesitzer),
+      // unabhängig davon, welche Labels die LLM-Gruppierung gewählt hat.
+      merged = canonicalizeSpeakerLabels(merged);
       if (diarizationInfo.diarizationUsed) diarizationInfo.diarizationSpeakers = new Set(merged.map((s) => s.speaker)).size;
       try { meetingStore.saveTranscript(id, { segments: merged, language }); } catch { /* Disk-Fehler */ }
 
@@ -523,6 +526,7 @@ function createMeetingController(deps) {
         if (Array.isArray(refined) && refined.length === merged.length) merged = refined;
       } catch { /* best effort */ }
     }
+    merged = canonicalizeSpeakerLabels(merged);
     const full = meetingStore.get(id);
     meetingStore.saveTranscript(id, { segments: merged, language: (full && full.transcript.language) || store.get('language') });
     return true;

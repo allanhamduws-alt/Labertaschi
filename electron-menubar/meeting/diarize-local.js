@@ -163,8 +163,9 @@ function segmentPitch(pcm, sampleRate) {
   return pitches[Math.floor(pitches.length / 2)]; // robuster Median
 }
 
-// Lautstärke (RMS) eines Audio-Abschnitts. Der lauteste Mikro-Cluster ist „Ich" (Allan sitzt
-// am nächsten am Mikro → systematisch lauter als Leute im Raum oder eine ferne Telefonstimme).
+// Lautstärke (RMS) eines Audio-Abschnitts (Hilfsfunktion/Diagnose). Wird fürs Sprecher-Labeling
+// NICHT mehr genutzt: die Auto-Lautstärke (AGC) nivelliert die Lautstärke, daher ist „wer zuerst
+// spricht = Ich" zuverlässiger (s. labelClusters).
 function segmentRms(pcm) {
   if (!pcm || pcm.length === 0) return 0;
   let sum = 0;
@@ -172,12 +173,11 @@ function segmentRms(pcm) {
   return Math.sqrt(sum / pcm.length);
 }
 
-// HINWEIS (empirisch, 2026-06-09): Eine Klangfarbe/„Telefon-Helligkeit" (Energieanteil > 3.4 kHz)
-// als Trenn-Merkmal wurde verworfen. An echten Aufnahmen ist dieser Anteil durchweg ~0.001 — der
-// Mitschnitt ist hochfrequent leer, weil der Renderer-Downsampler (Mittelung) ein Tiefpass ist.
-// Ebenso wurde ein RMS-„Sekundär-Split" verworfen: die Lautstärke EINES Sprechers schwankt real um
-// das ~3-fache (gemessen an einer 18-min-Aufnahme), was zu Fehl-Splits führen würde. Robust sind:
-// Tonhöhe (Clustering) + Lautstärke NUR zur Wahl, welcher Cluster „Ich" ist (lautester = nah am Mikro).
+// HINWEIS (empirisch, 2026-06-09): Klangfarbe/„Telefon-Helligkeit" und ein RMS-„Sekundär-Split"
+// wurden als Trenn-Merkmale verworfen (Höhen fehlen real; Einzelsprecher-Lautstärke schwankt ~3×).
+// „Lautester = Ich" wurde ebenfalls verworfen: seit das Mikro mit Auto-Lautstärke (AGC) aufnimmt
+// (gute Transkription), ist die Lautstärke nivelliert. Robust: Tonhöhe (Clustering) für die Trennung
+// + „wer zuerst spricht = Ich" fürs Labeling. Eine LLM-Stufe (diarize-refine) korrigiert danach.
 
 // ----------------------------- Pitch-Lücken-Clustering -----------------------------
 // Sortiert die Segment-Tonhöhen und trennt an „großen" Lücken in zusammenhängende
@@ -208,31 +208,19 @@ function pitchClusters(pitchOfFeat, { gapRatio = 0.14, gapAbs = 12, maxSpeakers 
   return clusterOfFeat; // 0..K-1, nach Tonhöhe geordnet
 }
 
-// Cluster-IDs → Sprecher-Labels, kanal-abhängig.
-// - Mikrofon ('mic'): der LAUTESTE Cluster ist „Ich" (= 'me'); die übrigen nach erstem
-//   zeitlichen Auftreten 'Sprecher 2','Sprecher 3',… (Leute im Raum / ferner Telefonpartner).
-//   Bei gleicher Lautstärke gewinnt der zuerst auftretende Cluster „Ich" (deterministisch).
+// Cluster-IDs → Sprecher-Labels, kanal-abhängig. Sortierung nach erstem zeitlichen Auftreten.
+// - Mikrofon ('mic'): WER ZUERST SPRICHT = „Ich" (= 'me'). Der Nutzer startet die Aufnahme und
+//   spricht praktisch immer zuerst („sag mal was…") → robuster als Lautstärke (die von der
+//   Auto-Lautstärke/AGC nivelliert wird) und per Umbenennen + LLM-Korrektur nachjustierbar.
+//   Übrige nach Auftreten 'Sprecher 2','Sprecher 3',… (Leute im Raum / ferner Partner).
 // - System ('system'): die Gegenstelle(n) — erster Cluster 'other' (= „Gegenstelle"),
 //   weitere 'Gegenstelle 2','Gegenstelle 3',…
-function labelClusters(clusterIds, clusterLoud, clusterFirstIdx, channel) {
-  const median = (arr) => { const s = [...arr].sort((a, b) => a - b); return s[s.length >> 1]; };
+function labelClusters(clusterIds, clusterFirstIdx, channel) {
   const byAppearance = [...clusterIds].sort((a, b) => clusterFirstIdx.get(a) - clusterFirstIdx.get(b));
   const labelOf = new Map();
-  if (channel === 'system') {
-    byAppearance.forEach((cl, i) => labelOf.set(cl, i === 0 ? 'other' : 'Gegenstelle ' + (i + 1)));
-    return labelOf;
-  }
-  // mic: lautester Cluster = „Ich". Strikt > behält bei Gleichstand den früher auftretenden.
-  let me = byAppearance[0], best = -Infinity;
-  for (const cl of byAppearance) {
-    const m = median(clusterLoud.get(cl) || [0]);
-    if (m > best + 1e-9) { best = m; me = cl; }
-  }
-  let n = 1;
-  for (const cl of byAppearance) {
-    if (cl === me) labelOf.set(cl, 'me');
-    else { n++; labelOf.set(cl, 'Sprecher ' + n); }
-  }
+  const meLabel = channel === 'system' ? 'other' : 'me';
+  const restPrefix = channel === 'system' ? 'Gegenstelle ' : 'Sprecher ';
+  byAppearance.forEach((cl, i) => labelOf.set(cl, i === 0 ? meLabel : restPrefix + (i + 1)));
   return labelOf;
 }
 
@@ -248,7 +236,6 @@ function diarizeLocal(segments, pcm, { sampleRate = 16000, gapRatio = 0.14, gapA
   if (!Array.isArray(segments) || segments.length === 0) return [];
   const soloLabel = channel === 'system' ? 'other' : 'me';
   const pitchOfFeat = [];
-  const loudOfFeat = [];
   const idxOfFeat = [];
   for (let i = 0; i < segments.length; i++) {
     const s = segments[i];
@@ -257,7 +244,7 @@ function diarizeLocal(segments, pcm, { sampleRate = 16000, gapRatio = 0.14, gapA
     if (b - a < Math.floor(0.25 * sampleRate)) continue; // <250ms → überspringen (unzuverlässig)
     const slice = pcm.subarray(a, b);
     const p = segmentPitch(slice, sampleRate);
-    if (p) { pitchOfFeat.push(p); loudOfFeat.push(segmentRms(slice)); idxOfFeat.push(i); }
+    if (p) { pitchOfFeat.push(p); idxOfFeat.push(i); }
   }
   const out = segments.map((s) => ({ ...s }));
   if (pitchOfFeat.length <= 1) { out.forEach((s) => { s.speaker = soloLabel; }); return out; }
@@ -287,18 +274,15 @@ function diarizeLocal(segments, pcm, { sampleRate = 16000, gapRatio = 0.14, gapA
     segCluster[i] = best != null ? best : clusterOfFeat[0];
   }
 
-  // Pro Cluster: Lautstärken sammeln + erstes zeitliches Auftreten merken.
-  const clusterLoud = new Map();
+  // Pro Cluster: erstes zeitliches Auftreten merken (für „wer zuerst spricht = Ich").
   const clusterFirstIdx = new Map();
   for (let k = 0; k < clusterOfFeat.length; k++) {
     const cl = clusterOfFeat[k];
-    if (!clusterLoud.has(cl)) clusterLoud.set(cl, []);
-    clusterLoud.get(cl).push(loudOfFeat[k]);
     const segIdx = idxOfFeat[k];
     if (!clusterFirstIdx.has(cl) || segIdx < clusterFirstIdx.get(cl)) clusterFirstIdx.set(cl, segIdx);
   }
-  const clusterIds = [...clusterLoud.keys()];
-  const labelOf = labelClusters(clusterIds, clusterLoud, clusterFirstIdx, channel);
+  const clusterIds = [...clusterFirstIdx.keys()];
+  const labelOf = labelClusters(clusterIds, clusterFirstIdx, channel);
   out.forEach((s, i) => { s.speaker = labelOf.get(segCluster[i]) || soloLabel; });
   return out;
 }

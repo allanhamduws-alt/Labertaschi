@@ -67,17 +67,18 @@ function rms(int16: Int16Array): number {
   return Math.sqrt(sum / int16.length);
 }
 
-// Mikrofon-Constraints. NS/AGC IMMER aus → rohes, volles Mikrofon-Signal ohne WebRTC-
-// Bandbegrenzung, ohne AGC-Clipping, ohne NoiseSuppression die eine 2. (leisere) Stimme als
-// Rauschen wegfiltert — entscheidend für die lokale Sprecher-Trennung. EchoCancellation nur,
-// wenn ein Anruf auf diesem Computer erkannt wurde (dann spielt die Gegenstelle über die
-// Lautsprecher → EC reduziert ihr Echo im Mikro; zusätzlich filtert die Pipeline es heraus).
-function micConstraints(callActive: boolean): MediaTrackConstraints {
+// Mikrofon-Constraints — IDENTISCH zum normalen Diktat-Modus (Command+X), der bei Allan auch
+// in lauter Umgebung (TV) zuverlässig funktioniert: EchoCancellation + NoiseSuppression +
+// AutoGainControl AN. AGC hebt leise Sprache automatisch an (gemessen: ohne AGC nur ~−30 dBFS →
+// Whisper rät), NS entfernt Raum-/TV-Lärm. Die lokale Sprecher-Trennung läuft über die TONHÖHE,
+// die NS/AGC übersteht; die „Ich"-Erkennung nutzt „wer zuerst spricht" (nicht Lautstärke), daher
+// kein Konflikt mit AGC. So: gute Transkription UND Sprecher-Trennung.
+function micConstraints(): MediaTrackConstraints {
   return {
     channelCount: 1,
-    echoCancellation: callActive,
-    noiseSuppression: false,
-    autoGainControl: false,
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
   };
 }
 
@@ -135,7 +136,7 @@ export function MeetingOverlay() {
     if (audioCtxRef.current) return; // bereits aktiv — Doppelstart (Push+Pull) vermeiden
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: micConstraints(callActiveRef.current),
+        audio: micConstraints(),
       });
       streamRef.current = stream;
 
@@ -270,13 +271,11 @@ export function MeetingOverlay() {
     });
 
     // Anruf-Erkennung (live): ein anderer Prozess nutzt das Mikro → Gegenstelle wird mitgenommen.
-    // Echo-Cancellation live nachziehen, damit das Lautsprecher-Echo der Gegenstelle gedämpft wird.
+    // (Die Mikro-Constraints sind konstant — EC/NS/AGC immer an —, daher nur die Anzeige setzen.)
     window.electronAPI.onMeetingCallState((d) => {
       const ca = !!(d && d.active);
       callActiveRef.current = ca;
       setCallActive(ca);
-      const track = streamRef.current?.getAudioTracks?.()[0];
-      track?.applyConstraints?.(micConstraints(ca)).catch(() => { /* best effort */ });
     });
 
     window.electronAPI.onMeetingStatus((s: MeetingStatus) => {
