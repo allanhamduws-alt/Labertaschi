@@ -13,15 +13,31 @@ interface MeetingStatus {
   systemLevel: number;
 }
 
-// Downsampling auf die Zielrate per MITTELUNG (Box-Filter) statt nearest-neighbor:
-// leichtes Anti-Aliasing, deutlich sauberer als die frühere Dezimierung. Läuft auf
-// einem Default-AudioContext (Geräterate) — ein erzwungener 16-kHz-Context lieferte
-// in Electron/Chromium mit MediaStreamSource teils STILLE (Capture-Regression).
+// Resampling auf die Zielrate (16 kHz). Läuft auf einem Default-AudioContext
+// (Geräterate) — ein erzwungener 16-kHz-Context lieferte in Electron/Chromium mit
+// MediaStreamSource teils STILLE (Capture-Regression).
+// - fromRate > toRate: Downsampling per MITTELUNG (Box-Filter) = leichtes Anti-Aliasing.
+// - fromRate < toRate: Upsampling per linearer Interpolation. WICHTIG, weil sonst ein
+//   Sub-16k-Gerät (z.B. Bluetooth-Headset im SCO-Profil mit 8 kHz) unverändert als
+//   16 kHz weiterverarbeitet würde → doppeltes Tempo/Tonhöhe + kaputtes Transkript.
 function downsample(f32: Float32Array, fromRate: number, toRate: number): Float32Array {
-  if (fromRate <= toRate) return f32;
+  if (fromRate === toRate) return f32;
   const ratio = fromRate / toRate;
-  const outLen = Math.floor(f32.length / ratio);
+  const outLen = Math.max(1, Math.floor(f32.length / ratio));
   const out = new Float32Array(outLen);
+  if (fromRate < toRate) {
+    // Upsampling: linear zwischen den Stützstellen interpolieren
+    for (let i = 0; i < outLen; i++) {
+      const pos = i * ratio;
+      const i0 = Math.floor(pos);
+      const frac = pos - i0;
+      const a = f32[i0] ?? 0;
+      const b = f32[i0 + 1] ?? a;
+      out[i] = a + (b - a) * frac;
+    }
+    return out;
+  }
+  // Downsampling: über das Quell-Fenster mitteln
   for (let i = 0; i < outLen; i++) {
     const start = Math.floor(i * ratio);
     const end = Math.min(f32.length, Math.floor((i + 1) * ratio));
