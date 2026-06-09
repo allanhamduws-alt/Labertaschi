@@ -13,13 +13,37 @@ interface MeetingStatus {
   systemLevel: number;
 }
 
+// Resampling auf die Zielrate (16 kHz). Läuft auf einem Default-AudioContext
+// (Geräterate) — ein erzwungener 16-kHz-Context lieferte in Electron/Chromium mit
+// MediaStreamSource teils STILLE (Capture-Regression).
+// - fromRate > toRate: Downsampling per MITTELUNG (Box-Filter) = leichtes Anti-Aliasing.
+// - fromRate < toRate: Upsampling per linearer Interpolation. WICHTIG, weil sonst ein
+//   Sub-16k-Gerät (z.B. Bluetooth-Headset im SCO-Profil mit 8 kHz) unverändert als
+//   16 kHz weiterverarbeitet würde → doppeltes Tempo/Tonhöhe + kaputtes Transkript.
 function downsample(f32: Float32Array, fromRate: number, toRate: number): Float32Array {
   if (fromRate === toRate) return f32;
   const ratio = fromRate / toRate;
-  const outLen = Math.floor(f32.length / ratio);
+  const outLen = Math.max(1, Math.floor(f32.length / ratio));
   const out = new Float32Array(outLen);
+  if (fromRate < toRate) {
+    // Upsampling: linear zwischen den Stützstellen interpolieren
+    for (let i = 0; i < outLen; i++) {
+      const pos = i * ratio;
+      const i0 = Math.floor(pos);
+      const frac = pos - i0;
+      const a = f32[i0] ?? 0;
+      const b = f32[i0 + 1] ?? a;
+      out[i] = a + (b - a) * frac;
+    }
+    return out;
+  }
+  // Downsampling: über das Quell-Fenster mitteln
   for (let i = 0; i < outLen; i++) {
-    out[i] = f32[Math.floor(i * ratio)];
+    const start = Math.floor(i * ratio);
+    const end = Math.min(f32.length, Math.floor((i + 1) * ratio));
+    let s = 0;
+    for (let j = start; j < end; j++) s += f32[j];
+    out[i] = s / Math.max(1, end - start);
   }
   return out;
 }
@@ -43,6 +67,21 @@ function rms(int16: Int16Array): number {
   return Math.sqrt(sum / int16.length);
 }
 
+// Mikrofon-Constraints je Modus. Vor-Ort ('inperson'): EC/NS/AGC ALLE aus → rohes,
+// volles Mikrofon-Signal ohne WebRTC-Bandbegrenzung, ohne AGC-Clipping, ohne
+// NoiseSuppression die eine 2. (leisere) Stimme als Rauschen wegfiltert. Das ist
+// entscheidend, damit Deepgram mehrere Sprecher überhaupt trennen kann.
+// Call ('call'): nur EchoCancellation an, damit das Mikro nicht die Gegenstelle (aus
+// den Lautsprechern) mitschneidet; NS/AGC bleiben aus für natürliche Sprachqualität.
+function micConstraints(mode: 'call' | 'inperson'): MediaTrackConstraints {
+  return {
+    channelCount: 1,
+    echoCancellation: mode === 'call',
+    noiseSuppression: false,
+    autoGainControl: false,
+  };
+}
+
 function formatDuration(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000);
   const minutes = Math.floor(totalSeconds / 60);
@@ -60,7 +99,6 @@ export function MeetingOverlay() {
   const [systemLevel, setSystemLevel] = useState(0);
   const [liveSegments, setLiveSegments] = useState<MeetingSegment[]>([]);
   const [diarization, setDiarization] = useState(false);
-  const [hasDeepgramKey, setHasDeepgramKey] = useState(false);
   const [meetingMode, setMeetingMode] = useState<'call' | 'inperson'>('call');
 
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -68,6 +106,8 @@ export function MeetingOverlay() {
   const srcNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const pcmBufferRef = useRef<Float32Array>(new Float32Array(0));
+  // Aktueller Modus als Ref — wird in async-Capture-Closures gelesen (State ist dort evtl. stale).
+  const meetingModeRef = useRef<'call' | 'inperson'>('call');
 
   // System-Loopback-Capture (nur Windows; macOS nimmt System-Audio über AudioTee im Main auf)
   const sysAudioCtxRef = useRef<AudioContext | null>(null);
@@ -96,14 +136,13 @@ export function MeetingOverlay() {
     if (audioCtxRef.current) return; // bereits aktiv — Doppelstart (Push+Pull) vermeiden
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-        },
+        audio: micConstraints(meetingModeRef.current),
       });
       streamRef.current = stream;
 
+      // Default-AudioContext (Geräterate). KEIN erzwungenes sampleRate:16000 — das lieferte
+      // mit MediaStreamSource in Electron/Chromium teils eine STILLE Spur. Auf 16 kHz wird
+      // in JS per Mittelung heruntergerechnet (downsample()).
       const ctx = new AudioContext();
       audioCtxRef.current = ctx;
 
@@ -215,7 +254,7 @@ export function MeetingOverlay() {
       setMicLevel(0);
       setSystemLevel(0);
       setLiveSegments([]);
-      if (d) { setDiarization(!!d.diarization); setHasDeepgramKey(!!d.hasDeepgramKey); if (d.meetingMode) setMeetingMode(d.meetingMode); }
+      if (d) { setDiarization(!!d.diarization); if (d.meetingMode) { meetingModeRef.current = d.meetingMode; setMeetingMode(d.meetingMode); } }
       startCapture();
       startSystemCapture();
     });
@@ -248,8 +287,7 @@ export function MeetingOverlay() {
       if (st && st.active) {
         setActive(true);
         setDiarization(!!st.diarization);
-        setHasDeepgramKey(!!st.hasDeepgramKey);
-        if (st.meetingMode) setMeetingMode(st.meetingMode);
+        if (st.meetingMode) { meetingModeRef.current = st.meetingMode; setMeetingMode(st.meetingMode); }
         startCapture();
         startSystemCapture();
       }
@@ -345,24 +383,21 @@ export function MeetingOverlay() {
         >
           {/* Pro-Session-Schalter (während der Aufnahme umschaltbar) */}
           <div className="space-y-2 mb-2 pb-2 border-b border-border/50">
-            {/* Deepgram an/aus — bei 1:1 aus = keine Deepgram-Kosten */}
+            {/* Lokale Sprecher-Trennung an/aus — kostenlos, kein API-Key nötig */}
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium text-foreground">Deepgram-Trennung</span>
+              <span className="text-xs font-medium text-foreground">Sprecher-Trennung</span>
               <button
-                disabled={!hasDeepgramKey}
                 onClick={(e) => {
                   e.stopPropagation();
                   window.electronAPI.setMeetingDiarization(!diarization).then((v) => setDiarization(!!v));
                 }}
                 className={cn(
                   'text-xs font-semibold px-2.5 py-1 rounded-full border transition-colors min-w-[46px]',
-                  !hasDeepgramKey
-                    ? 'opacity-40 cursor-not-allowed border-border/40 text-muted-foreground'
-                    : diarization
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-muted border-border text-muted-foreground hover:text-foreground'
+                  diarization
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-muted border-border text-muted-foreground hover:text-foreground'
                 )}
-                title={hasDeepgramKey ? 'Sprecher per Deepgram trennen (an/aus)' : 'Deepgram-Key fehlt (in den Einstellungen hinterlegen)'}
+                title="Sprecher lokal trennen (an/aus) — funktioniert bei einem Mikrofon, kostenlos"
               >
                 {diarization ? 'AN' : 'AUS'}
               </button>
@@ -374,14 +409,22 @@ export function MeetingOverlay() {
                 {(['call', 'inperson'] as const).map((mode) => (
                   <button
                     key={mode}
-                    disabled={!diarization || !hasDeepgramKey}
+                    disabled={!diarization}
                     onClick={(e) => {
                       e.stopPropagation();
-                      window.electronAPI.setMeetingMode(mode).then((m) => setMeetingMode(m || mode));
+                      window.electronAPI.setMeetingMode(mode).then((m) => {
+                        const next = (m || mode) as 'call' | 'inperson';
+                        meetingModeRef.current = next;
+                        setMeetingMode(next);
+                        // EC live umschalten: Vor-Ort = aus (roh, mehrere Sprecher trennbar),
+                        // Call = an (Gegenstelle nicht ins Mikro). NS/AGC bleiben in beiden aus.
+                        const track = streamRef.current?.getAudioTracks?.()[0];
+                        track?.applyConstraints?.(micConstraints(next)).catch(() => { /* APM-Reconfig best effort */ });
+                      });
                     }}
                     className={cn(
                       'text-xs font-medium px-2.5 py-1 transition-colors',
-                      (!diarization || !hasDeepgramKey) && 'opacity-40 cursor-not-allowed',
+                      !diarization && 'opacity-40 cursor-not-allowed',
                       meetingMode === mode ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
                     )}
                     title={mode === 'call' ? 'Gegenstelle (System-Audio) trennen' : 'Vor-Ort: Mikrofon in mehrere Sprecher trennen'}

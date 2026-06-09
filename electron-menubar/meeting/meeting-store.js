@@ -146,7 +146,9 @@ function createMeetingStore({ baseDir, store }) {
       }
     }
 
-    // Audio-Pfade: komprimiertes Opus bevorzugen, sonst (ältere Meetings) WAV.
+    // Audio-Pfade. Seit v1.11.0 wird Audio nach dem Meeting verworfen (Transkript ist der
+    // Deliverable) → i.d.R. null. .opus existiert nur noch bei Alt-Meetings (vor v1.11.0,
+    // damals komprimiert) und bleibt rückwärtskompatibel abspielbar; sonst .wav (keepAudio).
     const audioPath = (channel) => {
       const opus = path.join(_meetingDir(id), `audio_${channel}.opus`);
       if (fs.existsSync(opus)) return opus;

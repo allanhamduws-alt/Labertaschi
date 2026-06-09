@@ -7,7 +7,6 @@ import {
   Instagram, Sparkles, Save, Eye, EyeOff, Headphones
 } from 'lucide-react';
 import { MeetingsView } from './views/MeetingsView';
-import { DeepgramUsageCard } from '@/components/DeepgramUsageCard';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -208,7 +207,7 @@ export function Dashboard() {
         </nav>
 
         <div className="p-4 border-t text-xs text-muted-foreground text-center">
-          paply v{platform?.version ?? '1.10.3'}
+          paply v{platform?.version ?? '1.11.0'}
         </div>
       </aside>
 
@@ -1774,8 +1773,6 @@ function SettingsView({
   onSettingChange: (key: keyof SettingsType, value: boolean | string | number) => void;
 }) {
   const [groqKey, setGroqKey] = useState('');
-  const [deepgramKey, setDeepgramKey] = useState('');
-  const [showDeepgramKey, setShowDeepgramKey] = useState(false);
   const [shortcutInput, setShortcutInput] = useState('');
   const [meetingHotkeyInput, setMeetingHotkeyInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -1785,7 +1782,6 @@ function SettingsView({
   useEffect(() => {
     if (settings) {
       setGroqKey(settings.groqApiKey ? '••••••••••••••••' : '');
-      setDeepgramKey(settings.deepgramApiKey ? '••••••••••••••••' : '');
       setShortcutInput(settings.shortcut || '');
       setMeetingHotkeyInput(settings.meetingHotkey || 'Command+Shift+X');
     }
@@ -1839,9 +1835,6 @@ function SettingsView({
     if (groqKey && !groqKey.includes('•')) {
       await onSettingChange('groqApiKey', groqKey);
     }
-    if (deepgramKey && !deepgramKey.includes('•')) {
-      await onSettingChange('deepgramApiKey', deepgramKey);
-    }
     if (shortcutInput && shortcutInput !== settings?.shortcut) {
       await onSettingChange('shortcut', shortcutInput);
     }
@@ -1873,27 +1866,6 @@ function SettingsView({
               onChange={(e) => setGroqKey(e.target.value)}
               placeholder="gsk_..."
             />
-          </div>
-          <div>
-            <Label className="text-xs text-muted-foreground mb-2 block">
-              Deepgram API Key (optional — für Sprecher-Trennung in Meetings)
-            </Label>
-            <div className="relative">
-              <Input
-                type={showDeepgramKey ? 'text' : 'password'}
-                value={deepgramKey}
-                onChange={(e) => setDeepgramKey(e.target.value)}
-                placeholder="(Deepgram API Key)"
-                className="pr-10"
-              />
-              <button
-                type="button"
-                onClick={() => setShowDeepgramKey(!showDeepgramKey)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                {showDeepgramKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
           </div>
         </CardContent>
       </Card>
@@ -1969,7 +1941,7 @@ function SettingsView({
           <div className="flex items-center justify-between">
             <div>
               <Label>Sprecher trennen (Meetings)</Label>
-              <p className="text-xs text-muted-foreground">Mehrere Remote-Sprecher per Deepgram unterscheiden (Deepgram-Key nötig)</p>
+              <p className="text-xs text-muted-foreground">Mehrere Personen an einem Mikrofon lokal trennen (kostenlos, kein Key)</p>
             </div>
             <Switch
               checked={settings.diarizationEnabled}
@@ -2048,9 +2020,6 @@ function SettingsView({
           </div>
         </CardContent>
       </Card>
-
-      {/* Deepgram-Verbrauch */}
-      <DeepgramUsageCard />
 
       {/* Save Button */}
       <Button onClick={handleSave} className="w-full" size="lg">

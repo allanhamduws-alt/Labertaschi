@@ -16,7 +16,6 @@ const SETTINGS_APP = path.join(ROOT, 'src/apps/settings/SettingsApp.tsx');
 // Kanonische, in BEIDEN UIs bedienbare Einstellungen.
 const CANONICAL_KEYS = [
   'groqApiKey',
-  'deepgramApiKey',
   'diarizationEnabled',
   'meetingHotkey',
   'shortcut',
@@ -41,9 +40,4 @@ describe('Settings-UIs sind synchron', () => {
       expect(settingsApp.includes(key)).toBe(true);
     });
   }
-
-  it('beide UIs binden die gemeinsame Deepgram-Verbrauchskarte ein', () => {
-    expect(dashboard.includes('DeepgramUsageCard')).toBe(true);
-    expect(settingsApp.includes('DeepgramUsageCard')).toBe(true);
-  });
 });
