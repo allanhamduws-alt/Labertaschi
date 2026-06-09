@@ -207,7 +207,7 @@ export function Dashboard() {
         </nav>
 
         <div className="p-4 border-t text-xs text-muted-foreground text-center">
-          paply v{platform?.version ?? '1.11.0'}
+          paply v{platform?.version ?? '1.11.1'}
         </div>
       </aside>
 

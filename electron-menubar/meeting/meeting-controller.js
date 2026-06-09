@@ -306,9 +306,13 @@ function createMeetingController(deps) {
 
       const durationMs = now() - startedAtMs;
       const preview = (merged[0] && merged[0].text ? merged[0].text : '').slice(0, 120);
-      const speakerCount = new Set(merged.map((s) => s.speaker)).size || 1;
-      const title = new Date(startedAtMs).toLocaleString('de-DE');
-      try { meetingStore.finalizeIndex(id, { durationMs, preview, speakerCount, title, ...diarizationInfo }); } catch { /* Disk-Fehler */ }
+      const speakerNames = [...new Set(merged.map((s) => s.speaker))];
+      const speakerCount = speakerNames.length || 1;
+      // Titel: ein KI-Protokoll setzt gleich ein echtes Thema. Kommt KEIN Protokoll zustande,
+      // lieber den ersten gesprochenen Satz als Titel verwenden — nicht nur Datum/Uhrzeit.
+      const firstSentence = (merged.find((s) => (s.text || '').trim().length > 8)?.text || '').trim().slice(0, 70);
+      const title = firstSentence || new Date(startedAtMs).toLocaleString('de-DE');
+      try { meetingStore.finalizeIndex(id, { durationMs, preview, speakerCount, speakerNames, title, ...diarizationInfo }); } catch { /* Disk-Fehler */ }
 
       // KI-Protokoll (best effort)
       try {
@@ -389,7 +393,10 @@ function createMeetingController(deps) {
       fetchImpl,
     });
     meetingStore.saveSummary(id, summary);
-    meetingStore.finalizeIndex(id, { hasSummary: true });
+    // Titel aus dem (neu erzeugten) Protokoll-Thema aktualisieren — behebt Alt-Meetings,
+    // deren Titel noch Datum/Uhrzeit ist (z.B. wenn das Protokoll beim Stop fehlschlug).
+    const sumTitle = (summary.kurzzusammenfassung || '').slice(0, 60);
+    meetingStore.finalizeIndex(id, sumTitle ? { hasSummary: true, title: sumTitle } : { hasSummary: true });
     return summary;
   }
 

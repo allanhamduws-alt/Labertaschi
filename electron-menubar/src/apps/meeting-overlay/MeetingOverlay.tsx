@@ -306,36 +306,17 @@ export function MeetingOverlay() {
 
   if (!active) return null;
 
-  const micBarHeight = Math.round(4 + micLevel * 16);
-  const sysBarHeight = Math.round(4 + systemLevel * 16);
-
-  const speakerLabel = (s: string) => (s === 'me' ? 'Ich' : s === 'other' ? 'Gegenstelle' : s);
-
   return (
     <div className="flex flex-col items-end justify-start h-screen p-1 gap-1">
-      {/* Kleines Pill — Klick klappt das Transkript auf/zu */}
+      {/* Einziges kleines Pill: Mic · Status · System-Audio-Schalter · Dauer · Stop. Kein Aufklappen. */}
       <div
-        className="flex items-center gap-1.5 px-2 py-1 rounded-xl border shadow-md cursor-pointer select-none transition-all duration-200"
-        onClick={() => setExpanded((e) => !e)}
+        className="flex items-center gap-2 px-2.5 py-1 rounded-full border shadow-md select-none"
         style={{ WebkitAppRegion: 'no-drag', backgroundColor: '#ffffff', borderColor: health === 'red' ? '#ef4444' : '#e2e8f0' } as React.CSSProperties}
-        title={expanded ? 'Transkript ausblenden' : 'Transkript anzeigen'}
       >
         {/* Mic icon */}
         <Mic className="w-4 h-4 text-muted-foreground flex-shrink-0" />
 
-        {/* Level bars */}
-        <div className="flex items-end gap-0.5 h-5">
-          <div
-            className="w-1 bg-primary/70 rounded-full transition-all duration-100"
-            style={{ height: `${micBarHeight}px` }}
-          />
-          <div
-            className="w-1 bg-blue-400/70 rounded-full transition-all duration-100"
-            style={{ height: `${sysBarHeight}px` }}
-          />
-        </div>
-
-        {/* Health dot */}
+        {/* Status-Punkt (grün = läuft, rot = Problem) */}
         <div
           className={cn(
             'w-2 h-2 rounded-full flex-shrink-0',
@@ -343,7 +324,33 @@ export function MeetingOverlay() {
             health === 'yellow' && 'bg-yellow-500',
             health === 'red' && 'bg-red-500'
           )}
+          title={health === 'red' ? (reason || 'Problem') : 'Aufnahme läuft'}
         />
+
+        {/* System-Audio-Schalter — grün/an = System + Mikrofon, grau/aus = nur Mikrofon */}
+        <button
+          role="switch"
+          aria-checked={meetingMode === 'call'}
+          onClick={(e) => {
+            e.stopPropagation();
+            const next = meetingMode === 'call' ? 'inperson' : 'call';
+            window.electronAPI.setMeetingMode(next).then((m) => {
+              const v = (m || next) as 'call' | 'inperson';
+              meetingModeRef.current = v;
+              setMeetingMode(v);
+              const track = streamRef.current?.getAudioTracks?.()[0];
+              track?.applyConstraints?.(micConstraints(v)).catch(() => { /* best effort */ });
+            });
+          }}
+          className="relative w-8 h-[18px] rounded-full transition-colors flex-shrink-0"
+          style={{ backgroundColor: meetingMode === 'call' ? '#16a34a' : '#cbd5e1', WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          title={meetingMode === 'call' ? 'System-Audio dabei (Anruf) — tippen für nur Mikrofon' : 'Nur Mikrofon — tippen, um System-Audio dazuzunehmen'}
+        >
+          <span
+            className="absolute top-0.5 h-[14px] w-[14px] rounded-full bg-white shadow transition-all"
+            style={{ left: meetingMode === 'call' ? '16px' : '2px' }}
+          />
+        </button>
 
         {/* Dauer */}
         <span className="text-xs text-muted-foreground font-mono tabular-nums">
@@ -375,59 +382,6 @@ export function MeetingOverlay() {
         </div>
       )}
 
-      {/* Ausgeklappt: mitlaufendes Transkript (R5) */}
-      {expanded && (
-        <div
-          className="w-[340px] max-h-[180px] overflow-y-auto px-2 py-1.5 rounded-xl border shadow-md"
-          style={{ WebkitAppRegion: 'no-drag', backgroundColor: '#ffffff', borderColor: '#e2e8f0' } as React.CSSProperties}
-        >
-          {/* Einfacher Schalter: System-Audio dazunehmen oder nicht. AN (grün) = System + Mikrofon
-              (Anruf/Call), AUS = nur Mikrofon (vor Ort). Live umschaltbar — der zuletzt gewählte
-              Stand beim Stoppen entscheidet. Standard: AUS (nur Mikrofon). */}
-          <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-border/50">
-            <span className="text-xs font-medium text-foreground">System-Audio</span>
-            <button
-              role="switch"
-              aria-checked={meetingMode === 'call'}
-              onClick={(e) => {
-                e.stopPropagation();
-                const next = meetingMode === 'call' ? 'inperson' : 'call';
-                window.electronAPI.setMeetingMode(next).then((m) => {
-                  const v = (m || next) as 'call' | 'inperson';
-                  meetingModeRef.current = v;
-                  setMeetingMode(v);
-                  // EC live anpassen: nur Mikrofon = EC aus (roh, Sprecher trennbar),
-                  // System dazu = EC an (Gegenstelle nicht ins Mikro). NS/AGC bleiben aus.
-                  const track = streamRef.current?.getAudioTracks?.()[0];
-                  track?.applyConstraints?.(micConstraints(v)).catch(() => { /* APM-Reconfig best effort */ });
-                });
-              }}
-              className="relative w-11 h-6 rounded-full transition-colors flex-shrink-0"
-              style={{ backgroundColor: meetingMode === 'call' ? '#16a34a' : '#cbd5e1', WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-              title={meetingMode === 'call' ? 'System-Audio dabei (Anruf) — tippen für nur Mikrofon' : 'Nur Mikrofon (vor Ort) — tippen, um System-Audio dazuzunehmen'}
-            >
-              <span
-                className="absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all"
-                style={{ left: meetingMode === 'call' ? '22px' : '2px' }}
-              />
-            </button>
-          </div>
-          {liveSegments.length === 0 ? (
-            <p className="text-[11px] text-muted-foreground">Transkript erscheint, sobald gesprochen wird …</p>
-          ) : (
-            <div className="space-y-1">
-              {liveSegments.slice(-12).map((seg, i) => (
-                <p key={i} className="text-[11px] leading-snug">
-                  <span className={cn('font-semibold', seg.speaker === 'me' ? 'text-primary' : 'text-blue-400')}>
-                    {speakerLabel(seg.speaker)}:
-                  </span>{' '}
-                  <span className="text-foreground/90">{seg.text}</span>
-                </p>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

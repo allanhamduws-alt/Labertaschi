@@ -45,7 +45,12 @@ export function MeetingsList({ items, onSelect, onDelete }: MeetingsListProps) {
                   <div className="flex items-center gap-2 mb-1">
                     <span className="font-medium text-sm truncate">{item.title}</span>
                     <Badge variant="secondary" className="shrink-0 text-xs">
-                      {item.speakerCount} Sprecher
+                      {(() => {
+                        const names = item.speakerNames || [];
+                        const allDefault = names.length === 0 || names.every((n) => /^Sprecher \d+$/.test(n));
+                        if (allDefault) return `${item.speakerCount} Sprecher`;
+                        return names.length === 2 ? `${names[0]} und ${names[1]}` : names.join(', ');
+                      })()}
                     </Badge>
                   </div>
                   <p className="text-sm text-muted-foreground line-clamp-2 mb-2">

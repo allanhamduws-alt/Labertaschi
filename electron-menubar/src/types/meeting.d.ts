@@ -5,12 +5,13 @@ export interface MeetingIndexEntry {
   id: string; // `${startEpochMs}-${shortId}`
   startTime: string; // ISO
   durationMs: number;
-  title: string; // auto aus Kurzzusammenfassung, editierbar
+  title: string; // echtes Thema aus Protokoll, sonst erster Satz; editierbar
   speakerCount: number;
+  speakerNames?: string[]; // distinkte Sprecher-Labels (zeigt Namen in der Liste)
   preview: string; // erste ~120 Zeichen des Transkripts
   hasSummary: boolean;
   favorite: boolean;
-  // Deepgram-Diarization-Tracking (gesetzt beim Stop, nur bei Erfolg)
+  // Sprecher-Trennung-Tracking (gesetzt beim Stop, nur bei Erfolg)
   diarizationUsed?: boolean;
   diarizationSeconds?: number;
   diarizationCostUsd?: number;

@@ -48,6 +48,31 @@ describe('MeetingStore', () => {
     expect(ms.list().find((e) => e.id === id).speakerCount).toBe(3);
   });
 
+  it('renameSpeaker tauscht den Namen auch im Protokoll + speichert speakerNames im Index', () => {
+    const id = ms.create('2026-06-08T10:00:00.000Z');
+    ms.saveTranscript(id, { segments: [
+      { tStart: 0, tEnd: 1, speaker: 'Sprecher 1', channel: 'mic', text: 'Hallo' },
+      { tStart: 1, tEnd: 2, speaker: 'Sprecher 2', channel: 'mic', text: 'Tag' },
+    ], language: 'de' });
+    ms.saveSummary(id, {
+      kurzzusammenfassung: 'Sprecher 1 begrüßt Sprecher 2.',
+      kernpunkte: ['Sprecher 1 fragt nach.'],
+      todos: [{ text: 'Sprecher 2 meldet sich', verantwortlich: 'Sprecher 2', erledigt: false }],
+      offeneFragen: [], generatedAt: '', model: '',
+    });
+
+    expect(ms.renameSpeaker(id, 'Sprecher 1', 'Allan')).toBe(true);
+    expect(ms.renameSpeaker(id, 'Sprecher 2', 'Alex')).toBe(true);
+
+    const full = ms.get(id);
+    // Protokoll-Platzhalter ersetzt (ohne Neu-Erzeugung)
+    expect(full.summary.kurzzusammenfassung).toBe('Allan begrüßt Alex.');
+    expect(full.summary.kernpunkte[0]).toBe('Allan fragt nach.');
+    expect(full.summary.todos[0].verantwortlich).toBe('Alex');
+    // Index trägt die Namen → Listenansicht zeigt sie
+    expect(full.index.speakerNames).toEqual(['Allan', 'Alex']);
+  });
+
   it('renameSpeaker führt zwei Sprecher zusammen (Merge) wenn gleicher Name', () => {
     const id = ms.create('2026-06-08T10:00:00.000Z');
     ms.saveTranscript(id, { segments: [

@@ -54,6 +54,7 @@ function createMeetingStore({ baseDir, store }) {
       durationMs: 0,
       title: startTime,
       speakerCount: 1,
+      speakerNames: [],
       preview: '',
       hasSummary: false,
       favorite: false,
@@ -209,11 +210,27 @@ function createMeetingStore({ baseDir, store }) {
     return true;
   }
 
+  // Ersetzt `from` durch `to` in allen Strings eines Objekts (rekursiv). Für „Sprecher N"
+  // wird ein angehängter Ziffern-Lookahead genutzt, damit 'Sprecher 1' nicht in 'Sprecher 10'
+  // greift. Tauscht so die Sprecher-Platzhalter im KI-Protokoll, ohne es neu zu erzeugen.
+  function _swapInValue(value, re, to) {
+    if (typeof value === 'string') return value.replace(re, to);
+    if (Array.isArray(value)) return value.map((v) => _swapInValue(v, re, to));
+    if (value && typeof value === 'object') {
+      const out = {};
+      for (const k of Object.keys(value)) out[k] = _swapInValue(value[k], re, to);
+      return out;
+    }
+    return value;
+  }
+
   /**
    * renameSpeaker(id, fromSpeaker: string, toName: string) → boolean
    * Benennt EINEN konkreten Sprecher-Label um (z.B. 'Sprecher 1' → 'Max').
    * Zwei Labels auf denselben Namen setzen = zusammenführen (Merge).
-   * Aktualisiert speakerCount im Index. Liefert false, wenn das Label nicht vorkommt.
+   * Tauscht den Namen AUCH im KI-Protokoll (ohne Neu-Erzeugung) und aktualisiert
+   * speakerCount + speakerNames im Index (→ Listenansicht zeigt die Namen).
+   * Liefert false, wenn das Label nicht vorkommt.
    */
   function renameSpeaker(id, fromSpeaker, toName) {
     const transcript = loadTranscript(id);
@@ -230,8 +247,19 @@ function createMeetingStore({ baseDir, store }) {
     if (!changed) return false;
 
     saveTranscript(id, transcript);
-    const speakerCount = new Set(transcript.segments.map((s) => s.speaker)).size || 1;
-    finalizeIndex(id, { speakerCount });
+
+    // Platzhalter im Protokoll mittauschen (z.B. „Sprecher 1" → „Max"), ohne neu zu erzeugen.
+    const sp = _summaryPath(id);
+    if (fs.existsSync(sp)) {
+      try {
+        const summary = JSON.parse(fs.readFileSync(sp, 'utf8'));
+        const re = new RegExp(fromSpeaker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![0-9])', 'g');
+        fs.writeFileSync(sp, JSON.stringify(_swapInValue(summary, re, toName), null, 2), 'utf8');
+      } catch { /* Protokoll-Swap best effort */ }
+    }
+
+    const speakerNames = [...new Set(transcript.segments.map((s) => s.speaker))];
+    finalizeIndex(id, { speakerCount: speakerNames.length || 1, speakerNames });
     return true;
   }
 
