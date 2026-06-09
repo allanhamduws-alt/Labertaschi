@@ -55,6 +55,9 @@ const windowsAudioManager = new WindowsAudioManager();
 // (Subprozess), Windows = WASAPI-Loopback (im Overlay-Renderer via getDisplayMedia).
 // Der MeetingController bleibt dadurch plattform-agnostisch.
 const systemAudioManager = process.platform === 'darwin' ? audioTeeManager : windowsAudioManager;
+// Anruf-Detektor (macOS): erkennt, ob ein ANDERER Prozess als Paply das Mikro nutzt = Anruf.
+const CallDetectorManager = require('./call-detector-manager');
+const callDetectorManager = new CallDetectorManager();
 const { createMeetingController } = require('./meeting/meeting-controller');
 const { createMeetingStore } = require('./meeting/meeting-store');
 let meetingController = null;   // lazy in app.whenReady (braucht getStore + Pfade)
@@ -144,6 +147,8 @@ function getStore() {
         meetingSummaryModel: 'llama-3.3-70b-versatile',
         // Lokale Sprecher-Trennung (kostenlos, kein Cloud-Dienst) — siehe meeting/diarize-local.js
         diarizationEnabled: false,
+        // System-Audio (Gegenstelle eines Anrufs): 'auto' = automatisch erkennen (empfohlen).
+        systemAudioMode: 'auto',
       },
     });
   }
@@ -2143,7 +2148,6 @@ function setupIpcHandlers() {
   ipcMain.on('meeting:system-pcm', (_e, buf) => { windowsAudioManager.onSystemPcm(Buffer.from(buf)); });
   // Pro-Session-Override der Sprecher-Trennung (Overlay-Toggle), ändert nicht den globalen Default.
   ipcMain.handle('meeting:set-diarization', (_e, enabled) => (meetingController ? meetingController.setSessionDiarization(enabled) : false));
-  ipcMain.handle('meeting:set-meeting-mode', (_e, mode) => (meetingController ? meetingController.setSessionMeetingMode(mode) : false));
   ipcMain.handle('meetings:list', () => (meetingStore ? meetingStore.list() : []));
   ipcMain.handle('meetings:get', (_e, id) => (meetingStore ? meetingStore.get(id) : null));
   ipcMain.handle('meetings:delete', (_e, id) => (meetingStore ? meetingStore.remove(id) : false));
@@ -2170,6 +2174,7 @@ function setupIpcHandlers() {
       pttThreshold: s.get('pttThreshold', 350),
       meetingHotkey: s.get('meetingHotkey', 'Command+Shift+X'),
       diarizationEnabled: s.get('diarizationEnabled', false),
+      systemAudioMode: s.get('systemAudioMode', 'auto'),
     };
   });
 
@@ -2193,6 +2198,7 @@ function setupIpcHandlers() {
     }
 
     if (settings.diarizationEnabled !== undefined) s.set('diarizationEnabled', settings.diarizationEnabled);
+    if (settings.systemAudioMode !== undefined) s.set('systemAudioMode', settings.systemAudioMode);
 
     if (settings.pttThreshold !== undefined) {
       s.set('pttThreshold', settings.pttThreshold);
@@ -2524,6 +2530,7 @@ app.whenReady().then(() => {
     store: getStore(),
     meetingStore,
     audioTee: systemAudioManager,
+    callDetector: callDetectorManager,
     getOverlayWindow: () => createMeetingOverlayWindow(),
     getMainWindow: () => mainWindow,
     fetchImpl: (...args) => globalThis.fetch(...args),
@@ -2578,6 +2585,7 @@ app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   globeKeyManager.stop();
   systemAudioManager.stop();
+  callDetectorManager.stop();
   if (meetingController && meetingController.isActive()) {
     Promise.resolve(meetingController.stop()).catch(() => {});
   }

@@ -18,7 +18,8 @@
     "start": "npm run vite:build && electron .",
     "compile:globe": "node scripts/build-globe-listener.js",
     "compile:audio-tee": "node scripts/build-audio-tee.js",
-    "compile:bin": "npm run compile:globe && npm run compile:audio-tee",
+    "compile:call-detector": "node scripts/build-call-detector.js",
+    "compile:bin": "npm run compile:globe && npm run compile:audio-tee && npm run compile:call-detector",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "echo \"no lint configured\""
@@ -110,6 +111,13 @@
         {
           "from": "resources/bin/audiotee",
           "to": "bin/audiotee"
+        },
+        {
+          "from": "resources/bin/macos-call-detector",
+          "to": "bin/macos-call-detector",
+          "filter": [
+            "!*.swift"
+          ]
         }
       ]
     },
@@ -145,6 +153,7 @@
       "globe-key-manager.js",
       "audio-tee-manager.js",
       "windows-audio-manager.js",
+      "call-detector-manager.js",
       "audio/**/*",
       "meeting/**/*",
       "!**/*.test.js",

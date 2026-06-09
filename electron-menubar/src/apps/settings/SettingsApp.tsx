@@ -426,6 +426,31 @@ export function SettingsApp() {
                 />
               </div>
 
+              <div>
+                <Label>System-Audio (Anrufe)</Label>
+                <p className="text-xs text-muted-foreground mb-2">
+                  Läuft ein Anruf auf diesem Computer (Zoom/Teams/WhatsApp), wird die Gegenstelle
+                  mitgenommen. „Automatisch" erkennt das selbst — nur bei Sonderfällen ändern.
+                </p>
+                <div className="flex gap-2">
+                  {([
+                    ['auto', 'Automatisch'],
+                    ['always', 'Immer'],
+                    ['never', 'Nie'],
+                  ] as const).map(([val, label]) => (
+                    <Button
+                      key={val}
+                      variant={(settings.systemAudioMode ?? 'auto') === val ? 'default' : 'outline'}
+                      className="flex-1"
+                      size="sm"
+                      onClick={() => handleSave('systemAudioMode', val)}
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
               <div className="flex items-center justify-between">
                 <div>
                   <Label>Beep-Sound</Label>
