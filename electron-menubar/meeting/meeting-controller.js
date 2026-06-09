@@ -218,7 +218,6 @@ function createMeetingController(deps) {
       id: sessionId,
       diarization: sessionDiarization,
       meetingMode: sessionMeetingMode,
-      hasDeepgramKey: !!store.get('deepgramApiKey'),
     });
     healthTimer = setInterval(_emitHealth, 1000);
 
@@ -359,7 +358,6 @@ function createMeetingController(deps) {
       id: sessionId,
       diarization: active ? sessionDiarization : !!store.get('diarizationEnabled'),
       meetingMode: sessionMeetingMode,
-      hasDeepgramKey: !!store.get('deepgramApiKey'),
     };
   }
 

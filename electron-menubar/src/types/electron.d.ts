@@ -1,12 +1,5 @@
 import type { MeetingIndexEntry, MeetingFull, MeetingSummary, MeetingSegment } from './meeting';
 
-export interface DeepgramUsage {
-  totalSeconds: number;
-  totalCostUsd: number;
-  totalRequests: number;
-  perMonth: Record<string, { seconds: number; costUsd: number; requests: number }>;
-}
-
 export interface Settings {
   groqApiKey: string;
   enablePolish: boolean;
@@ -20,7 +13,6 @@ export interface Settings {
   activeProfile: string;
   pttThreshold: number;
   meetingHotkey: string;
-  deepgramApiKey: string;
   diarizationEnabled: boolean;
 }
 
@@ -168,15 +160,13 @@ export interface ElectronAPI {
   // Meeting-Recorder
   startMeeting: () => Promise<{ id: string } | null>;
   stopMeeting: () => Promise<{ id: string | null } | null>;
-  getMeetingStatus: () => Promise<{ active: boolean; id: string | null; diarization: boolean; meetingMode: 'call' | 'inperson'; hasDeepgramKey: boolean }>;
+  getMeetingStatus: () => Promise<{ active: boolean; id: string | null; diarization: boolean; meetingMode: 'call' | 'inperson' }>;
   setOverlayExpanded: (expanded: boolean) => void;
   sendMicPcm: (buf: ArrayBuffer) => void;
   sendMicLevel: (lvl: number) => void;
   sendSystemPcm: (buf: ArrayBuffer) => void;
   setMeetingDiarization: (enabled: boolean) => Promise<boolean>;
   setMeetingMode: (mode: 'call' | 'inperson') => Promise<'call' | 'inperson'>;
-  getDeepgramUsage: () => Promise<DeepgramUsage>;
-  resetDeepgramUsage: () => Promise<boolean>;
   listMeetings: () => Promise<MeetingIndexEntry[]>;
   getMeeting: (id: string) => Promise<MeetingFull | null>;
   deleteMeeting: (id: string) => Promise<boolean>;
@@ -187,7 +177,7 @@ export interface ElectronAPI {
   toggleMeetingTodo: (id: string, idx: number) => Promise<boolean>;
   onMeetingStatus: (cb: (s: { color: 'green' | 'yellow' | 'red'; reason: string; durationMs: number; micLevel: number; systemLevel: number }) => void) => void;
   onMeetingTranscriptChunk: (cb: (segs: MeetingSegment[]) => void) => void;
-  onMeetingStarted: (cb: (d: { id: string; diarization?: boolean; meetingMode?: 'call' | 'inperson'; hasDeepgramKey?: boolean }) => void) => void;
+  onMeetingStarted: (cb: (d: { id: string; diarization?: boolean; meetingMode?: 'call' | 'inperson' }) => void) => void;
   onMeetingStopped: (cb: (d: { id: string }) => void) => void;
 
   // Platform

@@ -99,7 +99,6 @@ export function MeetingOverlay() {
   const [systemLevel, setSystemLevel] = useState(0);
   const [liveSegments, setLiveSegments] = useState<MeetingSegment[]>([]);
   const [diarization, setDiarization] = useState(false);
-  const [hasDeepgramKey, setHasDeepgramKey] = useState(false);
   const [meetingMode, setMeetingMode] = useState<'call' | 'inperson'>('call');
 
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -255,7 +254,7 @@ export function MeetingOverlay() {
       setMicLevel(0);
       setSystemLevel(0);
       setLiveSegments([]);
-      if (d) { setDiarization(!!d.diarization); setHasDeepgramKey(!!d.hasDeepgramKey); if (d.meetingMode) { meetingModeRef.current = d.meetingMode; setMeetingMode(d.meetingMode); } }
+      if (d) { setDiarization(!!d.diarization); if (d.meetingMode) { meetingModeRef.current = d.meetingMode; setMeetingMode(d.meetingMode); } }
       startCapture();
       startSystemCapture();
     });
@@ -288,7 +287,6 @@ export function MeetingOverlay() {
       if (st && st.active) {
         setActive(true);
         setDiarization(!!st.diarization);
-        setHasDeepgramKey(!!st.hasDeepgramKey);
         if (st.meetingMode) { meetingModeRef.current = st.meetingMode; setMeetingMode(st.meetingMode); }
         startCapture();
         startSystemCapture();

@@ -57,7 +57,6 @@ const windowsAudioManager = new WindowsAudioManager();
 const systemAudioManager = process.platform === 'darwin' ? audioTeeManager : windowsAudioManager;
 const { createMeetingController } = require('./meeting/meeting-controller');
 const { createMeetingStore } = require('./meeting/meeting-store');
-const { emptyUsage } = require('./meeting/deepgram-usage');
 let meetingController = null;   // lazy in app.whenReady (braucht getStore + Pfade)
 let meetingStore = null;        // dito; von IPC-Handlern referenziert
 let meetingOverlayWindow = null;
@@ -143,12 +142,8 @@ function getStore() {
         meetings: [],
         meetingHotkey: 'Command+Shift+X',
         meetingSummaryModel: 'llama-3.3-70b-versatile',
-        // Mehr-Sprecher-Trennung im System-Kanal (Deepgram, Phase 2)
-        deepgramApiKey: '',
+        // Lokale Sprecher-Trennung (kostenlos, kein Cloud-Dienst) — siehe meeting/diarize-local.js
         diarizationEnabled: false,
-        // Lokaler Deepgram-Verbrauchszähler (zuverlässig, da wir die gesendeten
-        // Audio-Sekunden exakt kennen): { totalSeconds, totalCostUsd, totalRequests, perMonth }
-        deepgramUsage: emptyUsage(),
       },
     });
   }
@@ -2149,9 +2144,6 @@ function setupIpcHandlers() {
   // Pro-Session-Override der Sprecher-Trennung (Overlay-Toggle), ändert nicht den globalen Default.
   ipcMain.handle('meeting:set-diarization', (_e, enabled) => (meetingController ? meetingController.setSessionDiarization(enabled) : false));
   ipcMain.handle('meeting:set-meeting-mode', (_e, mode) => (meetingController ? meetingController.setSessionMeetingMode(mode) : false));
-  // Lokaler Deepgram-Verbrauchszähler
-  ipcMain.handle('deepgram:usage', () => { try { return getStore().get('deepgramUsage') || emptyUsage(); } catch { return emptyUsage(); } });
-  ipcMain.handle('deepgram:usage-reset', () => { try { getStore().set('deepgramUsage', emptyUsage()); return true; } catch { return false; } });
   ipcMain.handle('meetings:list', () => (meetingStore ? meetingStore.list() : []));
   ipcMain.handle('meetings:get', (_e, id) => (meetingStore ? meetingStore.get(id) : null));
   ipcMain.handle('meetings:delete', (_e, id) => (meetingStore ? meetingStore.remove(id) : false));
@@ -2177,7 +2169,6 @@ function setupIpcHandlers() {
       activeProfile: s.get('activeProfile'),
       pttThreshold: s.get('pttThreshold', 350),
       meetingHotkey: s.get('meetingHotkey', 'Command+Shift+X'),
-      deepgramApiKey: s.get('deepgramApiKey', ''),
       diarizationEnabled: s.get('diarizationEnabled', false),
     };
   });
@@ -2201,7 +2192,6 @@ function setupIpcHandlers() {
       registerHotkey();
     }
 
-    if (settings.deepgramApiKey !== undefined) s.set('deepgramApiKey', settings.deepgramApiKey);
     if (settings.diarizationEnabled !== undefined) s.set('diarizationEnabled', settings.diarizationEnabled);
 
     if (settings.pttThreshold !== undefined) {
