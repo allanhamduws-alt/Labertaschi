@@ -123,12 +123,14 @@ function createMeetingController(deps) {
   // LLM-Konfiguration für Protokoll + Sprecher-Korrektur: Groq + Gemini mit Auto-Fallback.
   // So kommt das Protokoll auch zustande, wenn Groqs Tageslimit erschöpft ist (dann Gemini).
   function llmConfig() {
+    // geminiModel BEWUSST nicht aus dem Store lesen: es gibt kein UI dafür, und ein früher
+    // persistierter Wert ('gemini-2.0-flash', Quota 0 → 429) würde den Code-Default überschreiben.
+    // chatComplete nutzt fest 'gemini-2.5-flash' (funktioniert im Free-Tier).
     return {
       groqApiKey: store.get('groqApiKey'),
       geminiApiKey: store.get('geminiApiKey'),
       llmProvider: store.get('llmProvider') || 'auto',
       model: store.get('meetingSummaryModel'),
-      geminiModel: store.get('geminiModel'),
       fetchImpl,
     };
   }
