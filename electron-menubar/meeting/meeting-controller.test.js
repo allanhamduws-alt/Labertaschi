@@ -67,7 +67,7 @@ describe('MeetingController (Integration mit Fakes)', () => {
     const { id } = ctl.start();
     expect(typeof id).toBe('string');
     expect(tee.isRunning).toBe(true);
-    ctl.setSessionMeetingMode('call'); // System-Audio einbeziehen → beide Kanäle im Transkript
+    // System-Kanal hat echtes Signal → wird automatisch als Gegenstelle einbezogen (kein Toggle mehr).
 
     // Genug PCM für je genau ein 1-s-Fenster (100 samples * 2 byte = 200 byte)
     tee.emit('pcm', signal());      // System-Audio
@@ -150,32 +150,91 @@ describe('MeetingController (Integration mit Fakes)', () => {
     expect(ctl.getStatus().diarization).toBe(false);
   });
 
-  it('Modus inperson diarisiert den MIKROFON-Kanal statt des System-Kanals', async () => {
+  it('ohne System-Audio wird NUR der Mikrofon-Kanal diarisiert (nie pauschal alles „Ich")', async () => {
     const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'paply-ctl6-'));
-    const store = fakeStore({ diarizationEnabled: true, deepgramApiKey: 'dk' });
+    const store = fakeStore({ diarizationEnabled: true });
     const meetingStore = createMeetingStore({ baseDir, store });
-    let diarizeCallCount = 0;
+    let diarizeCallCount = 0; const channelsSeen = [];
     const ctl = createMeetingController({
       store, meetingStore, audioTee: new FakeTee(),
       getOverlayWindow: () => null, getMainWindow: () => null,
       fetchImpl: fakeFetch, windowSeconds: 1, sampleRate: 100,
       // lokale Diarisierung: labelt die übergebenen Segmente; gibt eigenen Text NICHT vor
-      diarizeSegments: (segs) => { diarizeCallCount++; return segs.map((s) => ({ ...s, speaker: 'Sprecher 1' })); },
+      diarizeSegments: (segs, _pcm, opts) => { diarizeCallCount++; channelsSeen.push(opts && opts.channel); return segs.map((s) => ({ ...s, speaker: 'me' })); },
       now: () => 1700000000000,
     });
 
     const { id } = ctl.start();
-    expect(ctl.getStatus().meetingMode).toBe('inperson'); // neuer Default: nur Mikrofon
-    ctl.setSessionMeetingMode('inperson');
-    expect(ctl.getStatus().meetingMode).toBe('inperson');
     ctl.onMicPcm(signal()); // ein Mikro-Fenster → audio_mic.wav entsteht (System-Kanal bleibt leer)
     await ctl.stop();
 
-    // Im inperson-Modus wird der MIKROFON-Kanal diarisiert (System-Segmente sind leer → kein
-    // System-Aufruf). Das Sprecher-Label landet auf dem mic-Segment, Groqs TEXT bleibt erhalten.
+    // Kein System-Audio → nur der MIKROFON-Kanal wird diarisiert (genau ein Aufruf, channel:'mic').
     expect(diarizeCallCount).toBe(1);
+    expect(channelsSeen).toEqual(['mic']);
     const segs = meetingStore.get(id).transcript.segments;
-    expect(segs.some((s) => s.channel === 'mic' && s.speaker === 'Sprecher 1' && s.text === 'Testsatz')).toBe(true);
+    expect(segs.some((s) => s.channel === 'mic' && s.speaker === 'me' && s.text === 'Testsatz')).toBe(true);
+  });
+
+  it('systemAudioMode "never": System-Kanal wird trotz Signal NICHT einbezogen', async () => {
+    const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'paply-ctlnever-'));
+    const store = fakeStore({ systemAudioMode: 'never' });
+    const meetingStore = createMeetingStore({ baseDir, store });
+    const tee = new FakeTee();
+    const ctl = createMeetingController({
+      store, meetingStore, audioTee: tee,
+      getOverlayWindow: () => null, getMainWindow: () => null,
+      fetchImpl: fakeFetch, windowSeconds: 1, sampleRate: 100, now: () => 1700000000000,
+    });
+    const { id } = ctl.start();
+    tee.emit('pcm', signal()); // System-Signal vorhanden …
+    ctl.onMicPcm(signal());
+    await ctl.stop();
+    const segs = meetingStore.get(id).transcript.segments;
+    expect(segs.some((s) => s.channel === 'mic')).toBe(true);
+    expect(segs.some((s) => s.channel === 'system')).toBe(false); // … aber bewusst ausgeschlossen
+  });
+
+  it('Anruf-Detektor: onCallState setzt callActive + emittiert meeting:call-state', async () => {
+    const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'paply-ctlcall-'));
+    const store = fakeStore();
+    const meetingStore = createMeetingStore({ baseDir, store });
+    const events = [];
+    const win = { webContents: { send: (ch, p) => events.push({ ch, p }) } };
+    // Fake-Detektor mit gleicher Schnittstelle wie CallDetectorManager
+    const detector = new EventEmitter(); detector.isSupported = true;
+    detector.start = () => {}; detector.stop = () => {};
+    const ctl = createMeetingController({
+      store, meetingStore, audioTee: new FakeTee(), callDetector: detector,
+      getOverlayWindow: () => win, getMainWindow: () => null,
+      fetchImpl: fakeFetch, windowSeconds: 1, sampleRate: 100, now: () => 1700000000000,
+    });
+    ctl.start();
+    expect(ctl.getStatus().callActive).toBe(false);
+    detector.emit('call-state', true); // Detektor meldet: anderer Prozess nutzt Mikro
+    expect(ctl.getStatus().callActive).toBe(true);
+    expect(events.some((e) => e.ch === 'meeting:call-state' && e.p.active === true)).toBe(true);
+    await ctl.stop();
+  });
+
+  it('auto + Detektor lief, aber kein Anruf (Musik): System-Signal wird NICHT als Gegenstelle gewertet', async () => {
+    const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'paply-ctlmusic-'));
+    const store = fakeStore(); // systemAudioMode default 'auto'
+    const meetingStore = createMeetingStore({ baseDir, store });
+    const tee = new FakeTee();
+    const detector = new EventEmitter(); detector.isSupported = true;
+    detector.start = () => {}; detector.stop = () => {};
+    const ctl = createMeetingController({
+      store, meetingStore, audioTee: tee, callDetector: detector,
+      getOverlayWindow: () => null, getMainWindow: () => null,
+      fetchImpl: fakeFetch, windowSeconds: 1, sampleRate: 100, now: () => 1700000000000,
+    });
+    const { id } = ctl.start();
+    // Detektor lief, meldet aber NIE einen Anruf → System-Signal gilt als Musik/Medien.
+    tee.emit('pcm', signal());
+    ctl.onMicPcm(signal());
+    await ctl.stop();
+    const segs = meetingStore.get(id).transcript.segments;
+    expect(segs.some((s) => s.channel === 'system')).toBe(false);
   });
 
   it('Stille-Gate: stille Chunks werden NICHT transkribiert (keine Halluzination)', async () => {

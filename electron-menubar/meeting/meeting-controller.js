@@ -46,6 +46,7 @@ function createMeetingController(deps) {
     chunkMinSeconds, chunkMaxSeconds, silenceRms,
     speechGate = 0.0008, // Stille-Gate: tief genug, dass leise Stimmen bleiben, hoch genug für Digital-Stille
     diarizeSegments = diarizeLocal, // lokale Sprecher-Trennung (injizierbar für Tests)
+    callDetector = null, // nativer Anruf-Detektor (macOS); null = nicht verfügbar → Signal-Fallback
     keepAudio = false, // true = finale Audiodateien NICHT löschen (Debug/Test/Loopback-Validierung)
     now = () => Date.now(),
   } = deps;
@@ -90,9 +91,12 @@ function createMeetingController(deps) {
   // Pro-Session-Entscheidung zur Sprecher-Trennung (Snapshot des globalen Defaults
   // beim Start, per Overlay-Toggle für DIESE Aufnahme überschreibbar).
   let sessionDiarization = false;
-  // Meeting-Modus: 'call' = System-Kanal trennen (Gegenstelle), Mikro = "Ich";
-  // 'inperson' = Mikrofon-Kanal trennen (mehrere Leute vor Ort an einem Mikro).
-  let sessionMeetingMode = 'inperson'; // Default: nur Mikrofon (Schalter AUS); 'call' = System dazu
+  // Anruf-Erkennung: callActive = aktueller Zustand (für die Live-Anzeige im Overlay);
+  // callDetectedEver = ob WÄHREND der Aufnahme je ein Anruf lief (für die Stop-Auswertung);
+  // callDetectorRan = ob der native Detektor lief (sonst Signal-Präsenz-Fallback).
+  let callActive = false;
+  let callDetectedEver = false;
+  let callDetectorRan = false;
 
   // Finale Audiodateien werden beim Stop aus den Chunk-Dateien gestreamt (RAM-schonend).
 
@@ -100,6 +104,18 @@ function createMeetingController(deps) {
   let onTeePcm = null;
   let onTeeError = null;
   let onTeeLog = null;
+  let onDetectorState = null;
+
+  // Wird der System-Kanal als „Gegenstelle" gewertet? Eine einzige Regel statt zweier Modi:
+  // - Einstellung 'always'/'never' überschreibt.
+  // - 'auto' (Default): lief der native Detektor, ihm vertrauen (anderer Prozess nutzt Mikro =
+  //   echter Anruf, nicht nur Musik); sonst Fallback auf Signal-Präsenz (System-Kanal hatte Audio).
+  function systemIsRemote() {
+    const mode = store.get('systemAudioMode') || 'auto';
+    if (mode === 'always') return true;
+    if (mode === 'never') return false;
+    return callDetectorRan ? callDetectedEver : gotSystemPcm;
+  }
 
   function _emit(channel, payload) {
     const wins = [overlayWin, getMainWindow ? getMainWindow() : null];
@@ -137,11 +153,11 @@ function createMeetingController(deps) {
     // Kontext für den nächsten Chunk dieses Kanals fortschreiben (letzte ~800 Zeichen)
     const added = segments.map((s) => s.text).join(' ');
     lastTextByChannel[channel] = ((lastTextByChannel[channel] || '') + ' ' + added).slice(-800).trimStart();
-    // Live-Transkript respektiert den Schalter: AUS ('inperson') = nur Mikrofon (System weglassen);
-    // AN ('call') = System dazu + Lautsprecher-Echo aus dem Mic-Kanal filtern.
-    const merged = sessionMeetingMode === 'inperson'
-      ? mergeSegments(micSegs, [])
-      : mergeSegments(suppressBleed(micSegs, sysSegs), sysSegs);
+    // Einheitliche Regel (kein Modus mehr): ist der System-Kanal eine Gegenstelle, kommt er
+    // dazu und das Lautsprecher-Echo wird aus dem Mic-Kanal gefiltert; sonst nur Mikrofon.
+    const merged = systemIsRemote()
+      ? mergeSegments(suppressBleed(micSegs, sysSegs), sysSegs)
+      : mergeSegments(micSegs, []);
     _emit('meeting:transcript-chunk', merged);
     try {
       meetingStore.saveTranscript(sessionId, { segments: merged, language: store.get('language') });
@@ -181,7 +197,7 @@ function createMeetingController(deps) {
     micLevel = 0; systemLevel = 0; micWriteOk = true; diskError = false; permissionDenied = false; systemAudioError = null; gotSystemPcm = false;
     lastSystemPcmMs = startedAtMs; // Stille-Erkennung erst nach Schwelle
     sessionDiarization = !!store.get('diarizationEnabled');
-    sessionMeetingMode = 'inperson'; // Schalter startet AUS = nur Mikrofon
+    callActive = false; callDetectedEver = false; callDetectorRan = false;
 
     queue = new TranscriptionQueue({
       apiKey: store.get('groqApiKey'),
@@ -217,11 +233,20 @@ function createMeetingController(deps) {
     audioTee.on('log', onTeeLog);
     audioTee.start({ sampleRate, chunkDurationMs: 200, excludeProcesses: excludePid ? [excludePid] : undefined });
 
+    // Nativer Anruf-Detektor (macOS): erkennt, ob ein ANDERER Prozess gerade das Mikrofon
+    // nutzt (= Zwei-Wege-Anruf auf diesem Mac). Treibt die Live-Anzeige + die 'auto'-Regel.
+    if (callDetector && callDetector.isSupported) {
+      callDetectorRan = true;
+      onDetectorState = (a) => onCallState(a);
+      callDetector.on('call-state', onDetectorState);
+      try { callDetector.start({ excludePid }); } catch { /* Detektor optional — Fallback greift */ }
+    }
+
     overlayWin = getOverlayWindow ? getOverlayWindow() : null;
     _emit('meeting:started', {
       id: sessionId,
       diarization: sessionDiarization,
-      meetingMode: sessionMeetingMode,
+      callActive,
     });
     healthTimer = setInterval(_emitHealth, 1000);
 
@@ -252,6 +277,7 @@ function createMeetingController(deps) {
       if (onTeePcm) audioTee.removeListener('pcm', onTeePcm);
       if (onTeeError) audioTee.removeListener('error', onTeeError);
       if (onTeeLog) audioTee.removeListener('log', onTeeLog);
+      if (callDetector) { try { callDetector.stop(); } catch { /* best effort */ } if (onDetectorState) callDetector.removeListener('call-state', onDetectorState); }
 
       await queue.idle();
 
@@ -271,42 +297,41 @@ function createMeetingController(deps) {
         }
       } catch { /* Audio-Finalisierung fehlgeschlagen — Chunk-Dateien bleiben als Fallback */ }
 
-      // LOKALE Sprecher-Diarisierung (ohne Cloud, kostenlos, kein API-Key): pro Transkript-
-      // Segment werden akustische Merkmale (Grundton/Pitch) berechnet und in N Sprecher
-      // geclustert. Funktioniert bei EINEM Mikrofon (mehrere Personen am selben Mikro) —
-      // genau der Fall, an dem Deepgrams kanalbasierte Trennung scheitert. Groqs Transkript-
-      // TEXT bleibt vollständig erhalten; nur das Sprecher-Label pro Segment wird gesetzt.
-      // Overlay-Schalter (sessionMeetingMode): 'call' = System-Audio EINBEZIEHEN (Gegenstelle/Call;
-      // System-Kanal wird getrennt, Mikro = "Ich"); 'inperson' = NUR Mikrofon (System-Kanal wird
-      // komplett weggelassen, Mikrofon-Kanal wird in Sprecher getrennt). Default: 'inperson'.
-      // Call-Modus: Lautsprecher-Echo der Gegenstelle aus dem Mic-Kanal filtern (sie liegt sauber
-      // auf dem System-Kanal). Vor-Ort: System komplett weglassen ('nur Mikrofon').
-      let micForMerge = sessionMeetingMode === 'inperson' ? micSegs : suppressBleed(micSegs, sysSegs);
-      let sysForMerge = sessionMeetingMode === 'inperson' ? [] : sysSegs;
+      // EINHEITLICHE Pipeline (kein Modus mehr): Immer beide Quellen aufgenommen. Eine Regel —
+      // ist der System-Kanal eine Gegenstelle (systemIsRemote: Anruf erkannt bzw. Signal-Fallback),
+      // wird er einbezogen und sein Lautsprecher-Echo aus dem Mic-Kanal gefiltert; sonst weggelassen.
+      // Sprecher-Trennung (lokal, ohne Cloud): IMMER der Mikrofon-Kanal (lautester = „Ich", weitere
+      // = Raum-/Telefon-Sprecher) UND — falls Gegenstelle aktiv — der System-Kanal („Gegenstelle"…).
+      // Groqs Transkript-TEXT bleibt vollständig erhalten; nur das Sprecher-Label wird gesetzt.
+      const remote = systemIsRemote();
+      let micForMerge = remote && sysSegs.length ? suppressBleed(micSegs, sysSegs) : micSegs;
+      let sysForMerge = remote ? sysSegs : [];
       let diarizationInfo = { diarizationUsed: false, diarizationSeconds: 0, diarizationCostUsd: 0, diarizationSpeakers: 0 };
       if (sessionDiarization) {
-        const targetChannel = sessionMeetingMode === 'inperson' ? 'mic' : 'system';
-        const segs = targetChannel === 'mic' ? micSegs : sysSegs;
+        const readPcm = (ch) => {
+          try {
+            const p = nodePath.join(meetingDir, `audio_${ch}.wav`);
+            if (!fs.existsSync(p)) return null;
+            const buf = fs.readFileSync(p);
+            return new Int16Array(buf.buffer, buf.byteOffset + 44, Math.max(0, (buf.length - 44) >> 1));
+          } catch { return null; }
+        };
+        let used = false;
         try {
-          const targetPath = nodePath.join(meetingDir, `audio_${targetChannel}.wav`);
-          if (fs.existsSync(targetPath) && segs.length) {
-            const buf = fs.readFileSync(targetPath);
-            const pcm = new Int16Array(buf.buffer, buf.byteOffset + 44, Math.max(0, (buf.length - 44) >> 1));
-            const labeled = diarizeSegments(segs, pcm, { sampleRate });
-            if (Array.isArray(labeled) && labeled.length) {
-              if (targetChannel === 'mic') micForMerge = labeled; else sysForMerge = labeled;
-              diarizationInfo = {
-                diarizationUsed: true,
-                diarizationSeconds: 0, // lokal: keine Sekunden-/Kostenabrechnung
-                diarizationCostUsd: 0,
-                diarizationSpeakers: new Set(labeled.map((s) => s.speaker)).size,
-              };
-            }
+          if (micForMerge.length) {
+            const micPcm = readPcm('mic');
+            if (micPcm) { const l = diarizeSegments(micForMerge, micPcm, { sampleRate, channel: 'mic' }); if (Array.isArray(l) && l.length) { micForMerge = l; used = true; } }
+          }
+          if (remote && sysForMerge.length) {
+            const sysPcm = readPcm('system');
+            if (sysPcm) { const l = diarizeSegments(sysForMerge, sysPcm, { sampleRate, channel: 'system' }); if (Array.isArray(l) && l.length) { sysForMerge = l; used = true; } }
           }
         } catch { /* lokale Diarisierung fehlgeschlagen — Groqs Transkript bleibt erhalten */ }
+        if (used) diarizationInfo.diarizationUsed = true;
       }
 
       const merged = mergeSegments(micForMerge, sysForMerge);
+      if (diarizationInfo.diarizationUsed) diarizationInfo.diarizationSpeakers = new Set(merged.map((s) => s.speaker)).size;
       try { meetingStore.saveTranscript(id, { segments: merged, language }); } catch { /* Disk-Fehler */ }
 
       const durationMs = now() - startedAtMs;
@@ -372,7 +397,7 @@ function createMeetingController(deps) {
       active,
       id: sessionId,
       diarization: active ? sessionDiarization : !!store.get('diarizationEnabled'),
-      meetingMode: sessionMeetingMode,
+      callActive,
     };
   }
 
@@ -383,11 +408,13 @@ function createMeetingController(deps) {
     return sessionDiarization;
   }
 
-  // Pro-Session-Meeting-Modus (Overlay): 'call' (System trennen) oder 'inperson'
-  // (Mikrofon trennen). Greift beim Stop, ändert keinen globalen Default.
-  function setSessionMeetingMode(mode) {
-    sessionMeetingMode = mode === 'inperson' ? 'inperson' : 'call';
-    return sessionMeetingMode;
+  // Anruf-Zustand vom nativen Detektor (oder von Tests). Setzt die Live-Anzeige + merkt sich,
+  // dass während der Aufnahme ein Anruf lief (für die 'auto'-Auswertung beim Stop).
+  function onCallState(activeFlag) {
+    callActive = !!activeFlag;
+    if (callActive) callDetectedEver = true;
+    if (active) _emit('meeting:call-state', { active: callActive });
+    return callActive;
   }
 
   async function regenerateSummary(id) {
@@ -458,14 +485,15 @@ function createMeetingController(deps) {
     }
     if (!any) return false;
     await q.idle();
-    // Lokale Sprecher-Trennung beim Neu-Transkribieren (wenn aktiviert): trennt mehrere
-    // Personen am Mikrofon (Vor-Ort-Fall). So lassen sich bestehende Aufnahmen nachträglich
-    // in Sprecher auftrennen, ohne neu aufzunehmen.
-    let micF = mic; let sysF = sys;
+    // Dieselbe einheitliche Regel wie live: gab es System-Segmente, war es eine Gegenstelle →
+    // einbeziehen + Echo aus dem Mic-Kanal filtern; sonst nur Mikrofon. Diarisierung (wenn aktiv):
+    // immer Mikrofon (lautester = „Ich"), bei Gegenstelle auch der System-Kanal.
+    const remote = sys.length > 0;
+    let micF = remote ? suppressBleed(mic, sys) : mic;
+    let sysF = remote ? sys : [];
     if (store.get('diarizationEnabled')) {
-      try {
-        if (channelPcm.mic && mic.length > 1) micF = diarizeSegments(mic, channelPcm.mic, { sampleRate });
-      } catch { /* Trennung best effort — Text bleibt erhalten */ }
+      try { if (channelPcm.mic && micF.length) micF = diarizeSegments(micF, channelPcm.mic, { sampleRate, channel: 'mic' }); } catch { /* best effort */ }
+      try { if (remote && channelPcm.system && sysF.length) sysF = diarizeSegments(sysF, channelPcm.system, { sampleRate, channel: 'system' }); } catch { /* best effort */ }
     }
     const merged = mergeSegments(micF, sysF);
     const full = meetingStore.get(id);
@@ -473,7 +501,7 @@ function createMeetingController(deps) {
     return true;
   }
 
-  return { start, stop, isActive, getStatus, setSessionDiarization, setSessionMeetingMode, onMicPcm, onMicLevel, regenerateSummary, retranscribe };
+  return { start, stop, isActive, getStatus, setSessionDiarization, onCallState, onMicPcm, onMicLevel, regenerateSummary, retranscribe };
 }
 
 module.exports = { createMeetingController, transcriptToText, speakerLabel };
