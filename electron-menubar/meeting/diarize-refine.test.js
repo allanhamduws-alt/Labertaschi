@@ -55,6 +55,21 @@ describe('refineSpeakers', () => {
     expect(out[0].speaker).toBe('me');
   });
 
+  it('führt akustische Über-Trennung zusammen (3 → 2 Sprecher)', async () => {
+    const segs = [
+      { speaker: 'me', text: 'a' }, { speaker: 'Sprecher 2', text: 'b' },
+      { speaker: 'Sprecher 3', text: 'c' }, { speaker: 'me', text: 'd' },
+    ];
+    const out = await refineSpeakers(segs, {
+      apiKey: 'k',
+      fetchImpl: fakeFetch({ speakers: [
+        { i: 0, speaker: 'me' }, { i: 1, speaker: 'Sprecher 2' },
+        { i: 2, speaker: 'Sprecher 2' }, { i: 3, speaker: 'me' }, // Sprecher 3 → Sprecher 2 gemerged
+      ] }),
+    });
+    expect(new Set(out.map((s) => s.speaker))).toEqual(new Set(['me', 'Sprecher 2']));
+  });
+
   it('überspringt bei nur einem Sprecher', async () => {
     let called = false;
     const segs = [{ speaker: 'me', text: 'a' }, { speaker: 'me', text: 'b' }, { speaker: 'me', text: 'c' }];

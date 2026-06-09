@@ -18,7 +18,8 @@ Regeln:
 - Verwende NUR diese vorhandenen Sprecher: ${speakers.map((s) => `"${s}"`).join(', ')}. Erfinde keine neuen.
 - Ändere NIEMALS den Text.
 - Nutze Gesprächslogik: direkte Anrede mit „du", Frage→Antwort-Paare, inhaltliche Kohärenz. Beispiel: Wer „Ich möchte schlafen" sagt, ist NICHT derselbe, der danach „Wann willst du schlafen?" fragt.
-- Ändere eine Zuordnung NUR, wenn der Verlauf sie klar widerlegt; im Zweifel die vorgegebene Zuordnung behalten.
+- ÜBER-TRENNUNG ZUSAMMENFÜHREN: Wurden offensichtlich MEHR Sprecher gelistet, als im Gespräch wirklich vorkommen (z.B. dieselbe Person wurde akustisch in zwei aufgeteilt), dann FÜHRE sie zusammen — ordne die betroffenen Zeilen dem korrekten echten Sprecher zu und nutze einfach weniger der gelisteten Namen. Im Zweifel (Anzahl plausibel) NICHT zusammenführen.
+- Ändere eine Zuordnung NUR, wenn der Verlauf sie klar nahelegt; im Zweifel die vorgegebene Zuordnung behalten.
 - Antworte mit GENAU EINEM JSON-Objekt: {"speakers":[{"i":0,"speaker":"..."}, ...]} mit einem Eintrag pro Zeile (alle Zeilen 0..${segments.length - 1}).
 
 Transkript:

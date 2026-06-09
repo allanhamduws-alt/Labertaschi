@@ -153,7 +153,7 @@ function getStore() {
         // (großzügigeres Free-Tier). 'auto' = Groq zuerst, bei Limit automatisch Gemini.
         geminiApiKey: '',
         llmProvider: 'auto', // 'auto' | 'groq' | 'gemini'
-        geminiModel: 'gemini-2.0-flash',
+        geminiModel: 'gemini-2.5-flash',
       },
     });
   }
@@ -2551,8 +2551,9 @@ app.whenReady().then(() => {
     chunkMinSeconds: 20,
     chunkMaxSeconds: 40,
     // Audio wird nach dem Meeting gelöscht (Transkript ist der Deliverable). Für
-    // Debug/Loopback-Validierung: PAPLY_KEEP_AUDIO=1 behält die finalen Spuren.
-    keepAudio: !!process.env.PAPLY_KEEP_AUDIO,
+    // Debug/Loopback-Validierung: PAPLY_KEEP_AUDIO=1 oder Store-Flag keepMeetingAudioDebug
+    // behält die finalen Spuren (z.B. um Transkriptions-Qualität zu analysieren).
+    keepAudio: !!process.env.PAPLY_KEEP_AUDIO || !!getStore().get('keepMeetingAudioDebug'),
   });
 
   registerHotkey();

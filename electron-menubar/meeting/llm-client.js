@@ -74,7 +74,7 @@ async function chatComplete({
   system, user, jsonMode = false, maxTokens = 2048, temperature = 0,
   provider = 'auto',
   groqApiKey, groqModel = 'llama-3.3-70b-versatile',
-  geminiApiKey, geminiModel = 'gemini-2.0-flash',
+  geminiApiKey, geminiModel = 'gemini-2.5-flash',
   fetchImpl,
 } = {}) {
   const order = provider === 'groq' ? ['groq'] : provider === 'gemini' ? ['gemini'] : ['groq', 'gemini'];
