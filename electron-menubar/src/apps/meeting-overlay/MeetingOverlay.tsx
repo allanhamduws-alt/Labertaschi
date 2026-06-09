@@ -381,60 +381,40 @@ export function MeetingOverlay() {
           className="w-[340px] max-h-[180px] overflow-y-auto px-2 py-1.5 rounded-xl border shadow-md"
           style={{ WebkitAppRegion: 'no-drag', backgroundColor: '#ffffff', borderColor: '#e2e8f0' } as React.CSSProperties}
         >
-          {/* Pro-Session-Schalter (während der Aufnahme umschaltbar) */}
-          <div className="space-y-2 mb-2 pb-2 border-b border-border/50">
-            {/* Lokale Sprecher-Trennung an/aus — kostenlos, kein API-Key nötig */}
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium text-foreground">Sprecher-Trennung</span>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  window.electronAPI.setMeetingDiarization(!diarization).then((v) => setDiarization(!!v));
-                }}
-                className={cn(
-                  'text-xs font-semibold px-2.5 py-1 rounded-full border transition-colors min-w-[46px]',
-                  diarization
-                    ? 'bg-primary text-primary-foreground border-primary'
-                    : 'bg-muted border-border text-muted-foreground hover:text-foreground'
-                )}
-                title="Sprecher lokal trennen (an/aus) — funktioniert bei einem Mikrofon, kostenlos"
-              >
-                {diarization ? 'AN' : 'AUS'}
-              </button>
-            </div>
-            {/* Modus: Call (Gegenstelle/System trennen) ↔ Vor-Ort (Mikrofon trennen) */}
-            <div className="flex items-center justify-between gap-2">
-              <span className={cn('text-xs font-medium', diarization ? 'text-foreground' : 'text-muted-foreground/50')}>Modus</span>
+          {/* Sprecher-Trennung wird in den EINSTELLUNGEN an/aus geschaltet (Startwert). Hier im
+              Overlay nur die QUELLE umschalten — live während der Aufnahme, jederzeit akzeptiert.
+              Wird nur gezeigt, wenn die Trennung aktiviert ist. Standard = System-Audio. */}
+          {diarization && (
+            <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-border/50">
+              <span className="text-xs font-medium text-foreground">Sprecher trennen in</span>
               <div className="flex rounded-full border border-border overflow-hidden">
                 {(['call', 'inperson'] as const).map((mode) => (
                   <button
                     key={mode}
-                    disabled={!diarization}
                     onClick={(e) => {
                       e.stopPropagation();
                       window.electronAPI.setMeetingMode(mode).then((m) => {
                         const next = (m || mode) as 'call' | 'inperson';
                         meetingModeRef.current = next;
                         setMeetingMode(next);
-                        // EC live umschalten: Vor-Ort = aus (roh, mehrere Sprecher trennbar),
-                        // Call = an (Gegenstelle nicht ins Mikro). NS/AGC bleiben in beiden aus.
+                        // EC live umschalten: Mikrofon = aus (roh, mehrere Sprecher trennbar),
+                        // System/Call = an (Gegenstelle nicht ins Mikro). NS/AGC bleiben aus.
                         const track = streamRef.current?.getAudioTracks?.()[0];
                         track?.applyConstraints?.(micConstraints(next)).catch(() => { /* APM-Reconfig best effort */ });
                       });
                     }}
                     className={cn(
-                      'text-xs font-medium px-2.5 py-1 transition-colors',
-                      !diarization && 'opacity-40 cursor-not-allowed',
+                      'text-xs font-medium px-3 py-1 transition-colors',
                       meetingMode === mode ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
                     )}
-                    title={mode === 'call' ? 'Gegenstelle (System-Audio) trennen' : 'Vor-Ort: Mikrofon in mehrere Sprecher trennen'}
+                    title={mode === 'call' ? 'System-Audio (Gegenstelle / Call) in Sprecher trennen' : 'Mikrofon (mehrere Personen vor Ort) in Sprecher trennen'}
                   >
-                    {mode === 'call' ? 'Call' : 'Vor-Ort'}
+                    {mode === 'call' ? 'System' : 'Mikrofon'}
                   </button>
                 ))}
               </div>
             </div>
-          </div>
+          )}
           {liveSegments.length === 0 ? (
             <p className="text-[11px] text-muted-foreground">Transkript erscheint, sobald gesprochen wird …</p>
           ) : (
