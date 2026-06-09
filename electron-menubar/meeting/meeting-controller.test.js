@@ -57,6 +57,7 @@ describe('MeetingController (Integration mit Fakes)', () => {
     const { id } = ctl.start();
     expect(typeof id).toBe('string');
     expect(tee.isRunning).toBe(true);
+    ctl.setSessionMeetingMode('call'); // System-Audio einbeziehen → beide Kanäle im Transkript
 
     // Genug PCM für je genau ein 1-s-Fenster (100 samples * 2 byte = 200 byte)
     tee.emit('pcm', signal());      // System-Audio
@@ -95,7 +96,7 @@ describe('MeetingController (Integration mit Fakes)', () => {
     });
 
     const { id } = ctl.start();
-    tee.emit('pcm', signal()); // genau ein System-Fenster → audio_system.wav entsteht
+    ctl.onMicPcm(signal()); // Default 'inperson' → Mikrofon-Kanal wird getrennt
     await ctl.stop();
 
     const full = meetingStore.get(id);
@@ -154,7 +155,7 @@ describe('MeetingController (Integration mit Fakes)', () => {
     });
 
     const { id } = ctl.start();
-    expect(ctl.getStatus().meetingMode).toBe('call');
+    expect(ctl.getStatus().meetingMode).toBe('inperson'); // neuer Default: nur Mikrofon
     ctl.setSessionMeetingMode('inperson');
     expect(ctl.getStatus().meetingMode).toBe('inperson');
     ctl.onMicPcm(signal()); // ein Mikro-Fenster → audio_mic.wav entsteht (System-Kanal bleibt leer)

@@ -92,7 +92,7 @@ function createMeetingController(deps) {
   let sessionDiarization = false;
   // Meeting-Modus: 'call' = System-Kanal trennen (Gegenstelle), Mikro = "Ich";
   // 'inperson' = Mikrofon-Kanal trennen (mehrere Leute vor Ort an einem Mikro).
-  let sessionMeetingMode = 'call';
+  let sessionMeetingMode = 'inperson'; // Default: nur Mikrofon (Schalter AUS); 'call' = System dazu
 
   // Finale Audiodateien werden beim Stop aus den Chunk-Dateien gestreamt (RAM-schonend).
 
@@ -137,7 +137,8 @@ function createMeetingController(deps) {
     // Kontext für den nächsten Chunk dieses Kanals fortschreiben (letzte ~800 Zeichen)
     const added = segments.map((s) => s.text).join(' ');
     lastTextByChannel[channel] = ((lastTextByChannel[channel] || '') + ' ' + added).slice(-800).trimStart();
-    const merged = mergeSegments(micSegs, sysSegs);
+    // Live-Transkript respektiert den Schalter: AUS ('inperson') = nur Mikrofon, System weglassen.
+    const merged = mergeSegments(micSegs, sessionMeetingMode === 'inperson' ? [] : sysSegs);
     _emit('meeting:transcript-chunk', merged);
     try {
       meetingStore.saveTranscript(sessionId, { segments: merged, language: store.get('language') });
@@ -177,7 +178,7 @@ function createMeetingController(deps) {
     micLevel = 0; systemLevel = 0; micWriteOk = true; diskError = false; permissionDenied = false; systemAudioError = null; gotSystemPcm = false;
     lastSystemPcmMs = startedAtMs; // Stille-Erkennung erst nach Schwelle
     sessionDiarization = !!store.get('diarizationEnabled');
-    sessionMeetingMode = 'call';
+    sessionMeetingMode = 'inperson'; // Schalter startet AUS = nur Mikrofon
 
     queue = new TranscriptionQueue({
       apiKey: store.get('groqApiKey'),
@@ -272,10 +273,11 @@ function createMeetingController(deps) {
       // geclustert. Funktioniert bei EINEM Mikrofon (mehrere Personen am selben Mikro) —
       // genau der Fall, an dem Deepgrams kanalbasierte Trennung scheitert. Groqs Transkript-
       // TEXT bleibt vollständig erhalten; nur das Sprecher-Label pro Segment wird gesetzt.
-      // Modus 'call' (Default): System-Kanal trennen (Gegenstelle), Mikro bleibt "Ich".
-      // Modus 'inperson': Mikrofon-Kanal trennen (mehrere Leute vor Ort an EINEM Mikro).
+      // Overlay-Schalter (sessionMeetingMode): 'call' = System-Audio EINBEZIEHEN (Gegenstelle/Call;
+      // System-Kanal wird getrennt, Mikro = "Ich"); 'inperson' = NUR Mikrofon (System-Kanal wird
+      // komplett weggelassen, Mikrofon-Kanal wird in Sprecher getrennt). Default: 'inperson'.
       let micForMerge = micSegs;
-      let sysForMerge = sysSegs;
+      let sysForMerge = sessionMeetingMode === 'inperson' ? [] : sysSegs; // 'nur Mikrofon' = System raus
       let diarizationInfo = { diarizationUsed: false, diarizationSeconds: 0, diarizationCostUsd: 0, diarizationSpeakers: 0 };
       if (sessionDiarization) {
         const targetChannel = sessionMeetingMode === 'inperson' ? 'mic' : 'system';

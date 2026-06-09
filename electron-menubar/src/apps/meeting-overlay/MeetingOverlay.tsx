@@ -381,40 +381,37 @@ export function MeetingOverlay() {
           className="w-[340px] max-h-[180px] overflow-y-auto px-2 py-1.5 rounded-xl border shadow-md"
           style={{ WebkitAppRegion: 'no-drag', backgroundColor: '#ffffff', borderColor: '#e2e8f0' } as React.CSSProperties}
         >
-          {/* Sprecher-Trennung wird in den EINSTELLUNGEN an/aus geschaltet (Startwert). Hier im
-              Overlay nur die QUELLE umschalten — live während der Aufnahme, jederzeit akzeptiert.
-              Wird nur gezeigt, wenn die Trennung aktiviert ist. Standard = System-Audio. */}
-          {diarization && (
-            <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-border/50">
-              <span className="text-xs font-medium text-foreground">Sprecher trennen in</span>
-              <div className="flex rounded-full border border-border overflow-hidden">
-                {(['call', 'inperson'] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      window.electronAPI.setMeetingMode(mode).then((m) => {
-                        const next = (m || mode) as 'call' | 'inperson';
-                        meetingModeRef.current = next;
-                        setMeetingMode(next);
-                        // EC live umschalten: Mikrofon = aus (roh, mehrere Sprecher trennbar),
-                        // System/Call = an (Gegenstelle nicht ins Mikro). NS/AGC bleiben aus.
-                        const track = streamRef.current?.getAudioTracks?.()[0];
-                        track?.applyConstraints?.(micConstraints(next)).catch(() => { /* APM-Reconfig best effort */ });
-                      });
-                    }}
-                    className={cn(
-                      'text-xs font-medium px-3 py-1 transition-colors',
-                      meetingMode === mode ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
-                    )}
-                    title={mode === 'call' ? 'System-Audio (Gegenstelle / Call) in Sprecher trennen' : 'Mikrofon (mehrere Personen vor Ort) in Sprecher trennen'}
-                  >
-                    {mode === 'call' ? 'System' : 'Mikrofon'}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* Einfacher Schalter: System-Audio dazunehmen oder nicht. AN (grün) = System + Mikrofon
+              (Anruf/Call), AUS = nur Mikrofon (vor Ort). Live umschaltbar — der zuletzt gewählte
+              Stand beim Stoppen entscheidet. Standard: AUS (nur Mikrofon). */}
+          <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-border/50">
+            <span className="text-xs font-medium text-foreground">System-Audio</span>
+            <button
+              role="switch"
+              aria-checked={meetingMode === 'call'}
+              onClick={(e) => {
+                e.stopPropagation();
+                const next = meetingMode === 'call' ? 'inperson' : 'call';
+                window.electronAPI.setMeetingMode(next).then((m) => {
+                  const v = (m || next) as 'call' | 'inperson';
+                  meetingModeRef.current = v;
+                  setMeetingMode(v);
+                  // EC live anpassen: nur Mikrofon = EC aus (roh, Sprecher trennbar),
+                  // System dazu = EC an (Gegenstelle nicht ins Mikro). NS/AGC bleiben aus.
+                  const track = streamRef.current?.getAudioTracks?.()[0];
+                  track?.applyConstraints?.(micConstraints(v)).catch(() => { /* APM-Reconfig best effort */ });
+                });
+              }}
+              className="relative w-11 h-6 rounded-full transition-colors flex-shrink-0"
+              style={{ backgroundColor: meetingMode === 'call' ? '#16a34a' : '#cbd5e1', WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+              title={meetingMode === 'call' ? 'System-Audio dabei (Anruf) — tippen für nur Mikrofon' : 'Nur Mikrofon (vor Ort) — tippen, um System-Audio dazuzunehmen'}
+            >
+              <span
+                className="absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all"
+                style={{ left: meetingMode === 'call' ? '22px' : '2px' }}
+              />
+            </button>
+          </div>
           {liveSegments.length === 0 ? (
             <p className="text-[11px] text-muted-foreground">Transkript erscheint, sobald gesprochen wird …</p>
           ) : (
