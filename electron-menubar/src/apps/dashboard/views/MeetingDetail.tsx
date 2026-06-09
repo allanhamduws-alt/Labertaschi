@@ -20,6 +20,7 @@ export function MeetingDetail({ id, onBack }: MeetingDetailProps) {
   const [retranscribing, setRetranscribing] = useState(false);
   const [speakerNames, setSpeakerNames] = useState<Record<string, string>>({});
   const [todos, setTodos] = useState<MeetingTodo[]>([]);
+  const [regenMsg, setRegenMsg] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -46,9 +47,16 @@ export function MeetingDetail({ id, onBack }: MeetingDetailProps) {
 
   const handleRegenerateSummary = async () => {
     setRegenerating(true);
+    setRegenMsg(null);
     try {
-      await window.electronAPI.regenerateSummary(id);
-      await load();
+      const res = await window.electronAPI.regenerateSummary(id);
+      if (res && (res as { error?: string }).error === 'rate_limit') {
+        setRegenMsg('Groq-Tageslimit erreicht — das Protokoll lässt sich gerade nicht erzeugen. In ~36 Min oder morgen erneut versuchen (oder Dev-Tier bei Groq).');
+      } else {
+        await load();
+      }
+    } catch {
+      setRegenMsg('Protokoll konnte nicht erzeugt werden. Bitte später erneut versuchen.');
     } finally {
       setRegenerating(false);
     }
@@ -155,8 +163,17 @@ export function MeetingDetail({ id, onBack }: MeetingDetailProps) {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          {regenMsg && (
+            <p className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">{regenMsg}</p>
+          )}
           {!summary ? (
-            <p className="text-sm text-muted-foreground italic">Noch kein Protokoll vorhanden.</p>
+            (index as { summaryError?: string }).summaryError === 'rate_limit' ? (
+              <p className="text-sm text-amber-600 italic">
+                Protokoll noch nicht erzeugt — Groq-Tageslimit erreicht. Später „Neu erzeugen" (in ~36 Min oder morgen), oder Dev-Tier bei Groq.
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground italic">Noch kein Protokoll vorhanden.</p>
+            )
           ) : (
             <>
               {/* Kurzzusammenfassung */}

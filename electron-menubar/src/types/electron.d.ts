@@ -171,7 +171,7 @@ export interface ElectronAPI {
   getMeeting: (id: string) => Promise<MeetingFull | null>;
   deleteMeeting: (id: string) => Promise<boolean>;
   retranscribeMeeting: (id: string) => Promise<boolean>;
-  regenerateSummary: (id: string) => Promise<MeetingSummary | null>;
+  regenerateSummary: (id: string) => Promise<MeetingSummary | { error: string } | null>;
   updateSpeakerName: (id: string, channel: 'mic' | 'system', name: string) => Promise<boolean>;
   renameSpeaker: (id: string, fromSpeaker: string, toName: string) => Promise<boolean>;
   toggleMeetingTodo: (id: string, idx: number) => Promise<boolean>;

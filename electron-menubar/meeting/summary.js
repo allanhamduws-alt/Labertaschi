@@ -86,6 +86,13 @@ async function generateMeetingSummary(transcriptText, { apiKey, model, language,
 
   if (!response.ok) {
     const errText = await response.text().catch(() => '');
+    // Tageslimit (429) klar markieren, damit die UI eine verständliche Meldung zeigen kann
+    // statt still „kein Protokoll".
+    if (response.status === 429) {
+      const e = new Error('RATE_LIMIT: Groq-Tageslimit erreicht');
+      e.code = 'rate_limit';
+      throw e;
+    }
     throw new Error(`Groq Summary-Call fehlgeschlagen: ${response.status} ${errText}`);
   }
 

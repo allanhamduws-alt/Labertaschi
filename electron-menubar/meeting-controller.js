@@ -331,13 +331,9 @@ function createMeetingController(deps) {
           });
           meetingStore.saveSummary(id, summary);
           const sumTitle = (summary.kurzzusammenfassung || '').slice(0, 60);
-          meetingStore.finalizeIndex(id, { hasSummary: true, title: sumTitle || title, summaryError: null });
+          meetingStore.finalizeIndex(id, { hasSummary: true, title: sumTitle || title });
         }
-      } catch (e) {
-        // Protokoll später per Button nachholbar; Grund merken, damit die UI z.B. das
-        // Groq-Tageslimit klar anzeigt statt nur „kein Protokoll".
-        try { meetingStore.finalizeIndex(id, { summaryError: e && e.code === 'rate_limit' ? 'rate_limit' : 'error' }); } catch { /* Disk best effort */ }
-      }
+      } catch { /* Protokoll später per Button nachholbar */ }
 
       // Speicher: Das Transkript IST der Deliverable (Allans Entscheidung). Die volle
       // Audioqualität wurde live für Groq-STT + Deepgram-Diarisierung genutzt; danach wird
@@ -395,24 +391,17 @@ function createMeetingController(deps) {
     if (!full) return null;
     const text = transcriptToText(full.transcript.segments || []);
     if (!text.trim()) return null;
-    let summary;
-    try {
-      summary = await generateMeetingSummary(text, {
-        apiKey: store.get('groqApiKey'),
-        model: store.get('meetingSummaryModel'),
-        language: (full.transcript.language) || store.get('language'),
-        fetchImpl,
-      });
-    } catch (e) {
-      // Tageslimit verständlich an die UI zurückgeben statt nur zu scheitern.
-      if (e && e.code === 'rate_limit') return { error: 'rate_limit' };
-      throw e;
-    }
+    const summary = await generateMeetingSummary(text, {
+      apiKey: store.get('groqApiKey'),
+      model: store.get('meetingSummaryModel'),
+      language: (full.transcript.language) || store.get('language'),
+      fetchImpl,
+    });
     meetingStore.saveSummary(id, summary);
     // Titel aus dem (neu erzeugten) Protokoll-Thema aktualisieren — behebt Alt-Meetings,
     // deren Titel noch Datum/Uhrzeit ist (z.B. wenn das Protokoll beim Stop fehlschlug).
     const sumTitle = (summary.kurzzusammenfassung || '').slice(0, 60);
-    meetingStore.finalizeIndex(id, sumTitle ? { hasSummary: true, title: sumTitle, summaryError: null } : { hasSummary: true, summaryError: null });
+    meetingStore.finalizeIndex(id, sumTitle ? { hasSummary: true, title: sumTitle } : { hasSummary: true });
     return summary;
   }
 

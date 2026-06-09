@@ -10,6 +10,7 @@ export interface MeetingIndexEntry {
   speakerNames?: string[]; // distinkte Sprecher-Labels (zeigt Namen in der Liste)
   preview: string; // erste ~120 Zeichen des Transkripts
   hasSummary: boolean;
+  summaryError?: string | null; // 'rate_limit' | 'error', wenn Protokoll-Erzeugung scheiterte
   favorite: boolean;
   // Sprecher-Trennung-Tracking (gesetzt beim Stop, nur bei Erfolg)
   diarizationUsed?: boolean;
