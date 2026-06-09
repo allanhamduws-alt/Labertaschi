@@ -65,7 +65,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendMicLevel: (lvl) => ipcRenderer.send('meeting:mic-level', lvl),
   sendSystemPcm: (buf) => ipcRenderer.send('meeting:system-pcm', buf),
   setMeetingDiarization: (enabled) => ipcRenderer.invoke('meeting:set-diarization', enabled),
-  setMeetingMode: (mode) => ipcRenderer.invoke('meeting:set-meeting-mode', mode),
   setOverlayExpanded: (expanded) => ipcRenderer.send('meeting:overlay-expand', expanded),
   listMeetings: () => ipcRenderer.invoke('meetings:list'),
   getMeeting: (id) => ipcRenderer.invoke('meetings:get', id),
@@ -79,6 +78,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onMeetingTranscriptChunk: (cb) => ipcRenderer.on('meeting:transcript-chunk', (_e, segs) => cb(segs)),
   onMeetingStarted: (cb) => ipcRenderer.on('meeting:started', (_e, d) => cb(d)),
   onMeetingStopped: (cb) => ipcRenderer.on('meeting:stopped', (_e, d) => cb(d)),
+  onMeetingCallState: (cb) => ipcRenderer.on('meeting:call-state', (_e, d) => cb(d)),
 
   // Platform
   getPlatform: () => ipcRenderer.invoke('platform:get'),

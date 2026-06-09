@@ -80,6 +80,38 @@ describe('diarizeLocal', () => {
   it('leeres/kein Audio → ein Sprecher, robust', () => {
     expect(diarizeLocal([], new Int16Array(0), { sampleRate: SR })).toEqual([]);
     const r = diarizeLocal([{ tStart: 0, tEnd: 1, text: 'x' }], new Int16Array(10), { sampleRate: SR });
-    expect(r[0].speaker).toBe('Sprecher 1');
+    expect(r[0].speaker).toBe('me'); // einzelner Mikro-Sprecher = „Ich"
+  });
+
+  it('labelt den lautesten Mikro-Cluster als „Ich" (auch wenn er später auftritt)', () => {
+    // leise hohe Stimme zuerst, laute tiefe Stimme danach → der laute = „Ich"
+    const pcm = concat(tone(200, 1, 2000), tone(120, 1, 12000));
+    const segs = [
+      { tStart: 0, tEnd: 1, text: 'leise hoch' },
+      { tStart: 1, tEnd: 2, text: 'laut tief' },
+    ];
+    const r = diarizeLocal(segs, pcm, { sampleRate: SR, channel: 'mic' });
+    expect(r[1].speaker).toBe('me');         // lautes Segment = Ich
+    expect(r[0].speaker).toBe('Sprecher 2');  // leises Segment = anderer Sprecher
+  });
+
+  it('labelt den System-Kanal als Gegenstelle(n)', () => {
+    const pcm = concat(tone(120, 1), tone(200, 1));
+    const segs = [
+      { tStart: 0, tEnd: 1, text: 'gegenstelle a' },
+      { tStart: 1, tEnd: 2, text: 'gegenstelle b' },
+    ];
+    const r = diarizeLocal(segs, pcm, { sampleRate: SR, channel: 'system' });
+    const labels = new Set(r.map((s) => s.speaker));
+    expect(labels.has('other')).toBe(true);        // erste Gegenstelle
+    expect(labels.has('Gegenstelle 2')).toBe(true); // zweite Gegenstelle
+    expect(labels.has('me')).toBe(false);           // nie „Ich" auf dem System-Kanal
+  });
+
+  it('einzelner System-Sprecher = „Gegenstelle" (other)', () => {
+    const pcm = concat(tone(118, 1), tone(121, 1));
+    const segs = [{ tStart: 0, tEnd: 1, text: 'a' }, { tStart: 1, tEnd: 2, text: 'b' }];
+    const r = diarizeLocal(segs, pcm, { sampleRate: SR, channel: 'system' });
+    expect(new Set(r.map((s) => s.speaker))).toEqual(new Set(['other']));
   });
 });

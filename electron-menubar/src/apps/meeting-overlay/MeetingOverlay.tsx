@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Mic } from 'lucide-react';
+import { Mic, Phone } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { MeetingSegment } from '@/types/meeting';
 
@@ -67,16 +67,15 @@ function rms(int16: Int16Array): number {
   return Math.sqrt(sum / int16.length);
 }
 
-// Mikrofon-Constraints je Modus. Vor-Ort ('inperson'): EC/NS/AGC ALLE aus → rohes,
-// volles Mikrofon-Signal ohne WebRTC-Bandbegrenzung, ohne AGC-Clipping, ohne
-// NoiseSuppression die eine 2. (leisere) Stimme als Rauschen wegfiltert. Das ist
-// entscheidend, damit Deepgram mehrere Sprecher überhaupt trennen kann.
-// Call ('call'): nur EchoCancellation an, damit das Mikro nicht die Gegenstelle (aus
-// den Lautsprechern) mitschneidet; NS/AGC bleiben aus für natürliche Sprachqualität.
-function micConstraints(mode: 'call' | 'inperson'): MediaTrackConstraints {
+// Mikrofon-Constraints. NS/AGC IMMER aus → rohes, volles Mikrofon-Signal ohne WebRTC-
+// Bandbegrenzung, ohne AGC-Clipping, ohne NoiseSuppression die eine 2. (leisere) Stimme als
+// Rauschen wegfiltert — entscheidend für die lokale Sprecher-Trennung. EchoCancellation nur,
+// wenn ein Anruf auf diesem Computer erkannt wurde (dann spielt die Gegenstelle über die
+// Lautsprecher → EC reduziert ihr Echo im Mikro; zusätzlich filtert die Pipeline es heraus).
+function micConstraints(callActive: boolean): MediaTrackConstraints {
   return {
     channelCount: 1,
-    echoCancellation: mode === 'call',
+    echoCancellation: callActive,
     noiseSuppression: false,
     autoGainControl: false,
   };
@@ -99,15 +98,15 @@ export function MeetingOverlay() {
   const [systemLevel, setSystemLevel] = useState(0);
   const [liveSegments, setLiveSegments] = useState<MeetingSegment[]>([]);
   const [diarization, setDiarization] = useState(false);
-  const [meetingMode, setMeetingMode] = useState<'call' | 'inperson'>('call');
+  const [callActive, setCallActive] = useState(false);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
   const srcNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const pcmBufferRef = useRef<Float32Array>(new Float32Array(0));
-  // Aktueller Modus als Ref — wird in async-Capture-Closures gelesen (State ist dort evtl. stale).
-  const meetingModeRef = useRef<'call' | 'inperson'>('call');
+  // Anruf-Zustand als Ref — wird in async-Capture-Closures gelesen (State ist dort evtl. stale).
+  const callActiveRef = useRef(false);
 
   // System-Loopback-Capture (nur Windows; macOS nimmt System-Audio über AudioTee im Main auf)
   const sysAudioCtxRef = useRef<AudioContext | null>(null);
@@ -136,7 +135,7 @@ export function MeetingOverlay() {
     if (audioCtxRef.current) return; // bereits aktiv — Doppelstart (Push+Pull) vermeiden
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: micConstraints(meetingModeRef.current),
+        audio: micConstraints(callActiveRef.current),
       });
       streamRef.current = stream;
 
@@ -254,7 +253,7 @@ export function MeetingOverlay() {
       setMicLevel(0);
       setSystemLevel(0);
       setLiveSegments([]);
-      if (d) { setDiarization(!!d.diarization); if (d.meetingMode) { meetingModeRef.current = d.meetingMode; setMeetingMode(d.meetingMode); } }
+      if (d) { setDiarization(!!d.diarization); const ca = !!d.callActive; callActiveRef.current = ca; setCallActive(ca); }
       startCapture();
       startSystemCapture();
     });
@@ -266,6 +265,18 @@ export function MeetingOverlay() {
       setExpanded(false);
       setMicLevel(0);
       setSystemLevel(0);
+      callActiveRef.current = false;
+      setCallActive(false);
+    });
+
+    // Anruf-Erkennung (live): ein anderer Prozess nutzt das Mikro → Gegenstelle wird mitgenommen.
+    // Echo-Cancellation live nachziehen, damit das Lautsprecher-Echo der Gegenstelle gedämpft wird.
+    window.electronAPI.onMeetingCallState((d) => {
+      const ca = !!(d && d.active);
+      callActiveRef.current = ca;
+      setCallActive(ca);
+      const track = streamRef.current?.getAudioTracks?.()[0];
+      track?.applyConstraints?.(micConstraints(ca)).catch(() => { /* best effort */ });
     });
 
     window.electronAPI.onMeetingStatus((s: MeetingStatus) => {
@@ -287,7 +298,7 @@ export function MeetingOverlay() {
       if (st && st.active) {
         setActive(true);
         setDiarization(!!st.diarization);
-        if (st.meetingMode) { meetingModeRef.current = st.meetingMode; setMeetingMode(st.meetingMode); }
+        const ca = !!st.callActive; callActiveRef.current = ca; setCallActive(ca);
         startCapture();
         startSystemCapture();
       }
@@ -327,30 +338,17 @@ export function MeetingOverlay() {
           title={health === 'red' ? (reason || 'Problem') : 'Aufnahme läuft'}
         />
 
-        {/* System-Audio-Schalter — grün/an = System + Mikrofon, grau/aus = nur Mikrofon */}
-        <button
-          role="switch"
-          aria-checked={meetingMode === 'call'}
-          onClick={(e) => {
-            e.stopPropagation();
-            const next = meetingMode === 'call' ? 'inperson' : 'call';
-            window.electronAPI.setMeetingMode(next).then((m) => {
-              const v = (m || next) as 'call' | 'inperson';
-              meetingModeRef.current = v;
-              setMeetingMode(v);
-              const track = streamRef.current?.getAudioTracks?.()[0];
-              track?.applyConstraints?.(micConstraints(v)).catch(() => { /* best effort */ });
-            });
-          }}
-          className="relative w-8 h-[18px] rounded-full transition-colors flex-shrink-0"
-          style={{ backgroundColor: meetingMode === 'call' ? '#16a34a' : '#cbd5e1', WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-          title={meetingMode === 'call' ? 'System-Audio dabei (Anruf) — tippen für nur Mikrofon' : 'Nur Mikrofon — tippen, um System-Audio dazuzunehmen'}
-        >
+        {/* Anruf-Indikator — erscheint nur, wenn automatisch ein Anruf auf diesem Computer
+            erkannt wurde (die Gegenstelle wird dann mitgenommen). Kein Schalter mehr nötig. */}
+        {callActive && (
           <span
-            className="absolute top-0.5 h-[14px] w-[14px] rounded-full bg-white shadow transition-all"
-            style={{ left: meetingMode === 'call' ? '16px' : '2px' }}
-          />
-        </button>
+            className="flex items-center gap-0.5 text-[10px] font-medium text-green-600 flex-shrink-0"
+            title="Anruf erkannt — die Gegenstelle wird mitgenommen"
+          >
+            <Phone className="w-3 h-3" />
+            Anruf
+          </span>
+        )}
 
         {/* Dauer */}
         <span className="text-xs text-muted-foreground font-mono tabular-nums">

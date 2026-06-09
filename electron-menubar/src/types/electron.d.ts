@@ -14,6 +14,9 @@ export interface Settings {
   pttThreshold: number;
   meetingHotkey: string;
   diarizationEnabled: boolean;
+  // System-Audio (Gegenstelle eines Anrufs auf diesem Computer): 'auto' = automatisch erkennen
+  // (empfohlen), 'always' = immer einbeziehen, 'never' = nie. Default 'auto'.
+  systemAudioMode: 'auto' | 'always' | 'never';
 }
 
 export interface HistoryItem {
@@ -160,13 +163,12 @@ export interface ElectronAPI {
   // Meeting-Recorder
   startMeeting: () => Promise<{ id: string } | null>;
   stopMeeting: () => Promise<{ id: string | null } | null>;
-  getMeetingStatus: () => Promise<{ active: boolean; id: string | null; diarization: boolean; meetingMode: 'call' | 'inperson' }>;
+  getMeetingStatus: () => Promise<{ active: boolean; id: string | null; diarization: boolean; callActive: boolean }>;
   setOverlayExpanded: (expanded: boolean) => void;
   sendMicPcm: (buf: ArrayBuffer) => void;
   sendMicLevel: (lvl: number) => void;
   sendSystemPcm: (buf: ArrayBuffer) => void;
   setMeetingDiarization: (enabled: boolean) => Promise<boolean>;
-  setMeetingMode: (mode: 'call' | 'inperson') => Promise<'call' | 'inperson'>;
   listMeetings: () => Promise<MeetingIndexEntry[]>;
   getMeeting: (id: string) => Promise<MeetingFull | null>;
   deleteMeeting: (id: string) => Promise<boolean>;
@@ -177,8 +179,9 @@ export interface ElectronAPI {
   toggleMeetingTodo: (id: string, idx: number) => Promise<boolean>;
   onMeetingStatus: (cb: (s: { color: 'green' | 'yellow' | 'red'; reason: string; durationMs: number; micLevel: number; systemLevel: number }) => void) => void;
   onMeetingTranscriptChunk: (cb: (segs: MeetingSegment[]) => void) => void;
-  onMeetingStarted: (cb: (d: { id: string; diarization?: boolean; meetingMode?: 'call' | 'inperson' }) => void) => void;
+  onMeetingStarted: (cb: (d: { id: string; diarization?: boolean; callActive?: boolean }) => void) => void;
   onMeetingStopped: (cb: (d: { id: string }) => void) => void;
+  onMeetingCallState: (cb: (d: { active: boolean }) => void) => void;
 
   // Platform
   getPlatform: () => Promise<Platform>;

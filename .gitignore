@@ -26,6 +26,8 @@
 # compiled native binaries (built from source)
 /electron-menubar/resources/bin/macos-globe-listener
 !/electron-menubar/resources/bin/macos-globe-listener.swift
+/electron-menubar/resources/bin/macos-call-detector
+!/electron-menubar/resources/bin/macos-call-detector.swift
 
 # misc
 .DS_Store
