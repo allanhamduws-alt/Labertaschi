@@ -14,6 +14,7 @@ const { mergeSegments, suppressBleed } = require('./transcript-merger');
 const { evaluateHealth } = require('./health-monitor');
 const { generateMeetingSummary } = require('./summary');
 const { diarizeLocal } = require('./diarize-local');
+const { refineSpeakers } = require('./diarize-refine');
 
 function speakerLabel(s) {
   if (s === 'me') return 'Ich';
@@ -46,6 +47,7 @@ function createMeetingController(deps) {
     chunkMinSeconds, chunkMaxSeconds, silenceRms,
     speechGate = 0.0008, // Stille-Gate: tief genug, dass leise Stimmen bleiben, hoch genug für Digital-Stille
     diarizeSegments = diarizeLocal, // lokale Sprecher-Trennung (injizierbar für Tests)
+    refineSegments = refineSpeakers, // LLM-Korrektur der Sprecher-Zuordnung (injizierbar für Tests)
     callDetector = null, // nativer Anruf-Detektor (macOS); null = nicht verfügbar → Signal-Fallback
     keepAudio = false, // true = finale Audiodateien NICHT löschen (Debug/Test/Loopback-Validierung)
     now = () => Date.now(),
@@ -335,7 +337,18 @@ function createMeetingController(deps) {
         if (used) diarizationInfo.diarizationUsed = true;
       }
 
-      const merged = mergeSegments(micForMerge, sysForMerge);
+      let merged = mergeSegments(micForMerge, sysForMerge);
+      // LLM-KORREKTUR (Groq Llama): die akustische Trennung verrutscht bei kurzen, ähnlichen Stimmen
+      // gelegentlich EIN Segment. Ein LLM korrigiert die Zuordnung anhand des Gesprächsverlaufs
+      // (Anrede „du", Frage→Antwort) — Text bleibt unangetastet, keine neuen Sprecher. Best effort:
+      // scheitert es (z.B. Tageslimit), bleiben die akustischen Labels. Läuft VOR Protokoll, damit
+      // auch die Zusammenfassung die korrigierten Sprecher nutzt.
+      if (sessionDiarization && new Set(merged.map((s) => s.speaker)).size >= 2) {
+        try {
+          const refined = await refineSegments(merged, { apiKey: store.get('groqApiKey'), model: store.get('meetingSummaryModel'), fetchImpl });
+          if (Array.isArray(refined) && refined.length === merged.length) merged = refined;
+        } catch { /* Korrektur best effort — akustische Labels behalten */ }
+      }
       if (diarizationInfo.diarizationUsed) diarizationInfo.diarizationSpeakers = new Set(merged.map((s) => s.speaker)).size;
       try { meetingStore.saveTranscript(id, { segments: merged, language }); } catch { /* Disk-Fehler */ }
 
@@ -500,7 +513,13 @@ function createMeetingController(deps) {
       try { if (channelPcm.mic && micF.length) micF = diarizeSegments(micF, channelPcm.mic, { sampleRate, channel: 'mic' }); } catch { /* best effort */ }
       try { if (remote && channelPcm.system && sysF.length) sysF = diarizeSegments(sysF, channelPcm.system, { sampleRate, channel: 'system' }); } catch { /* best effort */ }
     }
-    const merged = mergeSegments(micF, sysF);
+    let merged = mergeSegments(micF, sysF);
+    if (store.get('diarizationEnabled') && new Set(merged.map((s) => s.speaker)).size >= 2) {
+      try {
+        const refined = await refineSegments(merged, { apiKey: store.get('groqApiKey'), model: store.get('meetingSummaryModel'), fetchImpl });
+        if (Array.isArray(refined) && refined.length === merged.length) merged = refined;
+      } catch { /* best effort */ }
+    }
     const full = meetingStore.get(id);
     meetingStore.saveTranscript(id, { segments: merged, language: (full && full.transcript.language) || store.get('language') });
     return true;

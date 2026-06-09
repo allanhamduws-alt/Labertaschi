@@ -237,6 +237,38 @@ describe('MeetingController (Integration mit Fakes)', () => {
     expect(segs.some((s) => s.channel === 'system')).toBe(false);
   });
 
+  it('LLM-Korrektur (refineSegments) wird bei ≥2 Sprechern angewandt', async () => {
+    const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'paply-ctlrefine-'));
+    const store = fakeStore({ diarizationEnabled: true });
+    const meetingStore = createMeetingStore({ baseDir, store });
+    let callN = 0;
+    const seqFetch = async (url, opts) => {
+      if (String(url).includes('/audio/transcriptions')) {
+        const start = callN++ * 5;
+        return { ok: true, json: async () => ({ segments: [{ start, end: start + 1, text: 'Satz' + start }] }) };
+      }
+      return fakeFetch(url, opts);
+    };
+    let refineCalled = false;
+    const ctl = createMeetingController({
+      store, meetingStore, audioTee: new FakeTee(),
+      getOverlayWindow: () => null, getMainWindow: () => null,
+      fetchImpl: seqFetch, windowSeconds: 1, sampleRate: 100, now: () => 1700000000000,
+      // akustisch: zwei verschiedene Sprecher → Refine-Gate (≥2) greift
+      diarizeSegments: (segs) => segs.map((s, i) => ({ ...s, speaker: i === 0 ? 'me' : 'Sprecher 2' })),
+      // LLM-Korrektur: weist alles 'mama' zu → beweist, dass das Ergebnis übernommen wird
+      refineSegments: async (segs) => { refineCalled = true; return segs.map((s) => ({ ...s, speaker: 'mama' })); },
+    });
+    const { id } = ctl.start();
+    ctl.onMicPcm(signal()); // Fenster 1
+    ctl.onMicPcm(signal()); // Fenster 2 → zwei Mikro-Segmente
+    await ctl.stop();
+    expect(refineCalled).toBe(true);
+    const segs = meetingStore.get(id).transcript.segments;
+    expect(segs.length).toBeGreaterThanOrEqual(2);
+    expect(segs.every((s) => s.speaker === 'mama')).toBe(true); // korrigierte Labels gespeichert
+  });
+
   it('Detektor-Fehler (unsigniert/fehlt): Fallback auf Signal-Heuristik (System wird einbezogen)', async () => {
     const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'paply-ctlfail-'));
     const store = fakeStore(); // auto

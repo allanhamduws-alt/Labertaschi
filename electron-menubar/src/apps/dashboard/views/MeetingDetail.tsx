@@ -84,12 +84,6 @@ export function MeetingDetail({ id, onBack }: MeetingDetailProps) {
     return speaker;
   };
 
-  const speakerClass = (speaker: string): string => {
-    if (speaker === 'me') return 'text-primary font-semibold';
-    if (speaker === 'other') return 'text-accent-foreground font-semibold';
-    return 'text-muted-foreground font-semibold';
-  };
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground">
@@ -115,6 +109,17 @@ export function MeetingDetail({ id, onBack }: MeetingDetailProps) {
   // Audio wird nach dem Meeting nicht mehr aufbewahrt (Transkript ist der Deliverable).
   // 'Neu transkribieren' braucht aber die Audiodatei → nur verfügbar, solange Audio existiert.
   const hasAudio = !!(audio.mic || audio.system);
+
+  // Sprecher-Farben: jeder Sprecher bekommt eine eigene, bleibende Farbe (nicht grau, auch nach
+  // Umbenennen). „Ich" ist immer GRÜN — auch wenn du dich „Ich" nennst (so erkennst du dich sofort).
+  const isMe = (sp: string): boolean => sp === 'me' || /^(ich|me|i)$/i.test(sp.trim());
+  const SPEAKER_PALETTE = ['text-blue-600', 'text-amber-600', 'text-purple-600', 'text-pink-600', 'text-teal-600', 'text-orange-600'];
+  const nonMeSpeakers = Array.from(new Set(transcript.segments.map((s) => s.speaker))).filter((sp) => !isMe(sp));
+  const speakerClass = (speaker: string): string => {
+    if (isMe(speaker)) return 'text-green-600 font-semibold';
+    const idx = nonMeSpeakers.indexOf(speaker);
+    return `${SPEAKER_PALETTE[idx % SPEAKER_PALETTE.length] ?? 'text-muted-foreground'} font-semibold`;
+  };
 
   return (
     <div className="space-y-6">
@@ -266,7 +271,7 @@ export function MeetingDetail({ id, onBack }: MeetingDetailProps) {
             return (
               <div className="p-3 bg-muted/40 rounded-lg space-y-2">
                 <Label className="text-xs text-muted-foreground block">
-                  Sprecher umbenennen — gleicher Name führt zwei Sprecher zusammen
+                  Sprecher umbenennen — gleicher Name führt zwei zusammen · nenne dich „Ich", dann bleibst du grün
                 </Label>
                 <div className="grid grid-cols-2 gap-2">
                   {uniq.map((sp) => (
