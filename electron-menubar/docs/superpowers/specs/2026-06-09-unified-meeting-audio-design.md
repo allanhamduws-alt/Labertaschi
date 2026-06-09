@@ -87,24 +87,27 @@ die Genauigkeit + liefert die Live-Anzeige; das Kernmodell funktioniert auch ohn
   *Automatisch (empfohlen)* / *Immer einbeziehen* / *Nie* — für Sonderfälle (z. B. bewusst
   Musik ausschließen oder erzwingen). Default: *Automatisch*.
 
-## Sprecher-Trennung — Qualitäts-Upgrade
+## Sprecher-Trennung — Qualitäts-Upgrade (an echten Aufnahmen validiert)
 
-Damit S4 (Telefon über Mikro) und S2 (zwei ähnliche Stimmen) korrekt zugeordnet werden, reicht
-Tonhöhe allein nicht. Zusätzliche, billig in JS berechenbare Merkmale je Segment:
+Geplant war ein Merkmalsvektor aus Tonhöhe + Lautstärke + Klangfarbe. Die Validierung an Allans
+echten Aufnahmen (S4: Ellen-Handy-Call `ucggy6`; S3: 18-min-Laptop-Call `tfag46`) hat das Design
+korrigiert — datengetrieben statt geraten:
 
-1. **Lautstärke (RMS)** — Allan am Mikro ist lauter als die ferne Telefonstimme. Stärkstes
-   Merkmal in S4 und gleichzeitig die „Ich"-Bestimmung (lautester Sprecher = Allan).
-2. **Klangfarbe / Telefon-Erkennung** — Telefonstimme ist bandbegrenzt (kaum Höhen) und hallig.
-   Hochfrequenz-Anteil (spektraler Tilt) + Nachhall-Proxy trennen „nah am Mikro" von „fern/Telefon"
-   robuster als Tonhöhe — löst nebenbei „zwei Männerstimmen" (S2). Die MFCC-Mathematik liegt
-   bereits ungenutzt in `diarize-local.js`.
-3. **Zeit-genaue Echo-Unterdrückung** — statt reiner Überlappung (`suppressBleed`) den
-   Lautsprecher-Versatz per Kreuzkorrelation bestimmen und nur echtes Echo verwerfen.
-4. **Robustere Tonhöhe (YIN)** statt roher Autokorrelation — beseitigt die Oktavfehler, die bei
-   der bandbegrenzten Telefonstimme zuschlagen (Ausbaustufe, falls 1–2 nicht reichen).
+- **Lautstärke (RMS) → BEHALTEN, aber nur zur „Ich"-Wahl.** Der lauteste Mikro-Cluster ist „Ich"
+  (Allan sitzt am nächsten am Mikro). Auf `ucggy6` trennt das Allan (RMS ~1200) sauber von Ellen
+  (RMS ~400). **NICHT** zum Splitten verwendet: die Lautstärke EINES Sprechers schwankt real um
+  das ~3-fache (Allan auf `tfag46`: 1379–4577) → ein RMS-Split würde einen Einzelsprecher zerreißen.
+- **Klangfarbe / Telefon-Helligkeit → VERWORFEN.** An echten Aufnahmen ist der Hochfrequenz-Anteil
+  durchweg ~0.001, weil der Renderer-Downsampler (Mittelung) als Tiefpass wirkt und die Höhen killt.
+  Als Trenn-Merkmal damit nutzlos.
+- **Tonhöhen-Gap-Clustering → UNVERÄNDERT.** Es ist robust: über-splittet einen Einzelsprecher
+  über 18 Minuten NICHT (`tfag46` mic → 1 Sprecher, system → 1 Sprecher) und trennt distinkte
+  Stimmen sauber (`ucggy6` → Allan + Ellen). Octave-Fold beibehalten.
+- **Echo-Unterdrückung → bewährte Überlappungs-Variante** (`suppressBleed`, getestet). Eine
+  Kreuzkorrelations-Verfeinerung ist optionale Ausbaustufe, nicht für v1 nötig.
 
-Clustering bleibt gap-basiert, aber über einen **gewichteten Merkmalsvektor**
-(Tonhöhe + Lautstärke + Klangfarbe) statt nur Tonhöhe.
+Ergebnis: **Tonhöhe (Clustering) + Lautstärke (Ich-Wahl)** — schlank, robust, an echten Daten belegt.
+Kein gewichteter Mehr-Merkmals-Vektor, kein Sekundär-Split.
 
 **Kein-Regressions-Garantie:** Wenn der System-Kanal leer ist (S1/S2/S4-Handy), wird **immer**
 der Mikro-Kanal diarisiert — nie pauschal alles „Ich". Wenn er Signal hat (S3/S5), wird er als

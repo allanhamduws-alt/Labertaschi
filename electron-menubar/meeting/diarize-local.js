@@ -172,6 +172,13 @@ function segmentRms(pcm) {
   return Math.sqrt(sum / pcm.length);
 }
 
+// HINWEIS (empirisch, 2026-06-09): Eine Klangfarbe/„Telefon-Helligkeit" (Energieanteil > 3.4 kHz)
+// als Trenn-Merkmal wurde verworfen. An echten Aufnahmen ist dieser Anteil durchweg ~0.001 — der
+// Mitschnitt ist hochfrequent leer, weil der Renderer-Downsampler (Mittelung) ein Tiefpass ist.
+// Ebenso wurde ein RMS-„Sekundär-Split" verworfen: die Lautstärke EINES Sprechers schwankt real um
+// das ~3-fache (gemessen an einer 18-min-Aufnahme), was zu Fehl-Splits führen würde. Robust sind:
+// Tonhöhe (Clustering) + Lautstärke NUR zur Wahl, welcher Cluster „Ich" ist (lautester = nah am Mikro).
+
 // ----------------------------- Pitch-Lücken-Clustering -----------------------------
 // Sortiert die Segment-Tonhöhen und trennt an „großen" Lücken in zusammenhängende
 // Sprecher-Cluster. Eine Lücke gilt als Sprecherwechsel, wenn sie relativ (Verhältnis zur
