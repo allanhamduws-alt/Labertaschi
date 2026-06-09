@@ -47,10 +47,20 @@ describe('MeetingController (Integration mit Fakes)', () => {
     const events = [];
     const win = { webContents: { send: (ch, p) => events.push({ ch, p }) } };
 
+    // Jede Transkription an anderer Zeit, damit Mic + System sich NICHT überlappen (sonst
+    // würde die Call-Modus-Echo-Unterdrückung das Mic-Segment als Lautsprecher-Echo verwerfen).
+    let callN = 0;
+    const seqFetch = async (url, opts) => {
+      if (String(url).includes('/audio/transcriptions')) {
+        const start = callN++ * 5;
+        return { ok: true, json: async () => ({ segments: [{ start, end: start + 1, text: 'Testsatz' }] }) };
+      }
+      return fakeFetch(url, opts);
+    };
     const ctl = createMeetingController({
       store, meetingStore, audioTee: tee,
       getOverlayWindow: () => win, getMainWindow: () => null,
-      fetchImpl: fakeFetch, windowSeconds: 1, sampleRate: 100, excludePid: 4242,
+      fetchImpl: seqFetch, windowSeconds: 1, sampleRate: 100, excludePid: 4242,
       now: () => 1700000000000,
     });
 

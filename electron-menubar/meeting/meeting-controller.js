@@ -10,7 +10,7 @@ const { encodeWav, concatWavFiles } = require('../audio/wav-encoder');
 const { rms, maxFrameRms } = require('../audio/pcm-utils');
 const { ChunkAccumulator } = require('./chunk-accumulator');
 const { TranscriptionQueue } = require('./transcription-queue');
-const { mergeSegments } = require('./transcript-merger');
+const { mergeSegments, suppressBleed } = require('./transcript-merger');
 const { evaluateHealth } = require('./health-monitor');
 const { generateMeetingSummary } = require('./summary');
 const { diarizeLocal } = require('./diarize-local');
@@ -137,8 +137,11 @@ function createMeetingController(deps) {
     // Kontext für den nächsten Chunk dieses Kanals fortschreiben (letzte ~800 Zeichen)
     const added = segments.map((s) => s.text).join(' ');
     lastTextByChannel[channel] = ((lastTextByChannel[channel] || '') + ' ' + added).slice(-800).trimStart();
-    // Live-Transkript respektiert den Schalter: AUS ('inperson') = nur Mikrofon, System weglassen.
-    const merged = mergeSegments(micSegs, sessionMeetingMode === 'inperson' ? [] : sysSegs);
+    // Live-Transkript respektiert den Schalter: AUS ('inperson') = nur Mikrofon (System weglassen);
+    // AN ('call') = System dazu + Lautsprecher-Echo aus dem Mic-Kanal filtern.
+    const merged = sessionMeetingMode === 'inperson'
+      ? mergeSegments(micSegs, [])
+      : mergeSegments(suppressBleed(micSegs, sysSegs), sysSegs);
     _emit('meeting:transcript-chunk', merged);
     try {
       meetingStore.saveTranscript(sessionId, { segments: merged, language: store.get('language') });
@@ -276,8 +279,10 @@ function createMeetingController(deps) {
       // Overlay-Schalter (sessionMeetingMode): 'call' = System-Audio EINBEZIEHEN (Gegenstelle/Call;
       // System-Kanal wird getrennt, Mikro = "Ich"); 'inperson' = NUR Mikrofon (System-Kanal wird
       // komplett weggelassen, Mikrofon-Kanal wird in Sprecher getrennt). Default: 'inperson'.
-      let micForMerge = micSegs;
-      let sysForMerge = sessionMeetingMode === 'inperson' ? [] : sysSegs; // 'nur Mikrofon' = System raus
+      // Call-Modus: Lautsprecher-Echo der Gegenstelle aus dem Mic-Kanal filtern (sie liegt sauber
+      // auf dem System-Kanal). Vor-Ort: System komplett weglassen ('nur Mikrofon').
+      let micForMerge = sessionMeetingMode === 'inperson' ? micSegs : suppressBleed(micSegs, sysSegs);
+      let sysForMerge = sessionMeetingMode === 'inperson' ? [] : sysSegs;
       let diarizationInfo = { diarizationUsed: false, diarizationSeconds: 0, diarizationCostUsd: 0, diarizationSpeakers: 0 };
       if (sessionDiarization) {
         const targetChannel = sessionMeetingMode === 'inperson' ? 'mic' : 'system';
