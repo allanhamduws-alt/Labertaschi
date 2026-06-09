@@ -120,6 +120,19 @@ function createMeetingController(deps) {
     return callDetectorRan ? callDetectedEver : gotSystemPcm;
   }
 
+  // LLM-Konfiguration für Protokoll + Sprecher-Korrektur: Groq + Gemini mit Auto-Fallback.
+  // So kommt das Protokoll auch zustande, wenn Groqs Tageslimit erschöpft ist (dann Gemini).
+  function llmConfig() {
+    return {
+      groqApiKey: store.get('groqApiKey'),
+      geminiApiKey: store.get('geminiApiKey'),
+      llmProvider: store.get('llmProvider') || 'auto',
+      model: store.get('meetingSummaryModel'),
+      geminiModel: store.get('geminiModel'),
+      fetchImpl,
+    };
+  }
+
   function _emit(channel, payload) {
     const wins = [overlayWin, getMainWindow ? getMainWindow() : null];
     for (const w of wins) {
@@ -345,7 +358,7 @@ function createMeetingController(deps) {
       // auch die Zusammenfassung die korrigierten Sprecher nutzt.
       if (sessionDiarization && new Set(merged.map((s) => s.speaker)).size >= 2) {
         try {
-          const refined = await refineSegments(merged, { apiKey: store.get('groqApiKey'), model: store.get('meetingSummaryModel'), fetchImpl });
+          const refined = await refineSegments(merged, llmConfig());
           if (Array.isArray(refined) && refined.length === merged.length) merged = refined;
         } catch { /* Korrektur best effort — akustische Labels behalten */ }
       }
@@ -366,12 +379,7 @@ function createMeetingController(deps) {
       try {
         const text = transcriptToText(merged);
         if (text.trim()) {
-          const summary = await generateMeetingSummary(text, {
-            apiKey: store.get('groqApiKey'),
-            model: store.get('meetingSummaryModel'),
-            language,
-            fetchImpl,
-          });
+          const summary = await generateMeetingSummary(text, { ...llmConfig(), language });
           meetingStore.saveSummary(id, summary);
           const sumTitle = (summary.kurzzusammenfassung || '').slice(0, 60);
           meetingStore.finalizeIndex(id, { hasSummary: true, title: sumTitle || title, summaryError: null });
@@ -442,12 +450,7 @@ function createMeetingController(deps) {
     if (!text.trim()) return null;
     let summary;
     try {
-      summary = await generateMeetingSummary(text, {
-        apiKey: store.get('groqApiKey'),
-        model: store.get('meetingSummaryModel'),
-        language: (full.transcript.language) || store.get('language'),
-        fetchImpl,
-      });
+      summary = await generateMeetingSummary(text, { ...llmConfig(), language: (full.transcript.language) || store.get('language') });
     } catch (e) {
       // Tageslimit verständlich an die UI zurückgeben statt nur zu scheitern.
       if (e && e.code === 'rate_limit') return { error: 'rate_limit' };
@@ -516,7 +519,7 @@ function createMeetingController(deps) {
     let merged = mergeSegments(micF, sysF);
     if (store.get('diarizationEnabled') && new Set(merged.map((s) => s.speaker)).size >= 2) {
       try {
-        const refined = await refineSegments(merged, { apiKey: store.get('groqApiKey'), model: store.get('meetingSummaryModel'), fetchImpl });
+        const refined = await refineSegments(merged, llmConfig());
         if (Array.isArray(refined) && refined.length === merged.length) merged = refined;
       } catch { /* best effort */ }
     }

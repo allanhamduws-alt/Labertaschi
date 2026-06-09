@@ -7,7 +7,7 @@
 // Konservativ: im Zweifel bleibt die akustische Zuordnung. Best effort — scheitert das LLM
 // (z.B. Tageslimit), bleiben die akustischen Labels erhalten.
 
-const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const { chatComplete } = require('./llm-client');
 
 /** Baut den Korrektur-Prompt. Reine Funktion (testbar). */
 function buildRefinePrompt(segments, speakers) {
@@ -44,40 +44,36 @@ function parseRefineResponse(content, allowed) {
 }
 
 /**
- * Korrigiert die Sprecher-Zuordnung per LLM. Gibt eine NEUE Segmentliste zurück (Text identisch).
+ * Korrigiert die Sprecher-Zuordnung per LLM (Groq/Gemini, Auto-Fallback). Gibt eine NEUE
+ * Segmentliste zurück (Text identisch).
  * @param {{speaker:string,text:string,tStart?:number,tEnd?:number,channel?:string}[]} segments
- * @param {{apiKey:string, model?:string, fetchImpl?:Function, minSegments?:number}} opts
+ * @param {{apiKey?:string, groqApiKey?:string, geminiApiKey?:string, llmProvider?:string,
+ *          model?:string, geminiModel?:string, fetchImpl?:Function, minSegments?:number, maxSegments?:number}} opts
  */
-async function refineSpeakers(segments, { apiKey, model = 'llama-3.3-70b-versatile', fetchImpl, minSegments = 3, maxSegments = 400 } = {}) {
+async function refineSpeakers(segments, opts = {}) {
+  const { apiKey, groqApiKey, geminiApiKey, llmProvider, model, geminiModel, fetchImpl, minSegments = 3, maxSegments = 400 } = opts;
   if (!Array.isArray(segments) || segments.length < minSegments) return segments;
   if (segments.length > maxSegments) return segments; // sehr lange Meetings: kein LLM-Pass (Token/Kosten)
   const speakers = [...new Set(segments.map((s) => s.speaker).filter(Boolean))];
   if (speakers.length < 2) return segments; // nur ein Sprecher → nichts zu korrigieren
-  if (!apiKey) return segments;
-  const fetchFn = fetchImpl || globalThis.fetch;
+  const gKey = groqApiKey != null ? groqApiKey : apiKey; // Abwärtskompatibilität: apiKey = Groq-Key
+  if (!gKey && !geminiApiKey) return segments; // kein LLM-Anbieter → akustische Labels behalten
 
-  const res = await fetchFn(GROQ_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model,
-      temperature: 0,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: 'Du bist ein präziser Diarisierungs-Korrektor. Du gibst ausschließlich gültiges JSON zurück.' },
-        { role: 'user', content: buildRefinePrompt(segments, speakers) },
-      ],
-    }),
+  const { text } = await chatComplete({
+    system: 'Du bist ein präziser Diarisierungs-Korrektor. Du gibst ausschließlich gültiges JSON zurück.',
+    user: buildRefinePrompt(segments, speakers),
+    jsonMode: true,
+    maxTokens: 8192,
+    temperature: 0,
+    provider: llmProvider || 'auto',
+    groqApiKey: gKey,
+    groqModel: model || 'llama-3.3-70b-versatile',
+    geminiApiKey,
+    geminiModel,
+    fetchImpl,
   });
-  if (!res.ok) {
-    const err = new Error(`Groq refine HTTP ${res.status}`);
-    if (res.status === 429) err.code = 'rate_limit';
-    throw err;
-  }
-  const data = await res.json();
-  const content = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
   const allowed = new Set(speakers);
-  const corrections = parseRefineResponse(content || '', allowed);
+  const corrections = parseRefineResponse(text || '', allowed);
   if (corrections.size === 0) return segments;
   // Anwenden: NUR Sprecher ändern, Text + Zeiten unverändert.
   return segments.map((s, i) => (corrections.has(i) ? { ...s, speaker: corrections.get(i) } : s));

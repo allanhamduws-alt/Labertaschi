@@ -45,6 +45,8 @@ export function SettingsApp() {
   const [platform, setPlatform] = useState<Platform | null>(null);
   const [showGroqKey, setShowGroqKey] = useState(false);
   const [groqKey, setGroqKey] = useState('');
+  const [showGeminiKey, setShowGeminiKey] = useState(false);
+  const [geminiKey, setGeminiKey] = useState('');
   const [shortcut, setShortcut] = useState('');
   const [isCapturing, setIsCapturing] = useState(false);
   const [meetingHotkey, setMeetingHotkey] = useState('');
@@ -63,6 +65,7 @@ export function SettingsApp() {
         // Keys maskiert anzeigen (konsistent mit Dashboard) — der echte Key bleibt
         // im Main-Prozess, nicht im Renderer-State. Speichern nur, wenn neu getippt.
         setGroqKey(settingsData.groqApiKey ? '••••••••••••••••' : '');
+        setGeminiKey(settingsData.geminiApiKey ? '••••••••••••••••' : '');
         setShortcut(settingsData.shortcut || '');
         setMeetingHotkey(settingsData.meetingHotkey || '');
       } catch (error) {
@@ -191,6 +194,74 @@ export function SettingsApp() {
                 >
                   Speichern
                 </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Google Gemini API Key</CardTitle>
+              <CardDescription>
+                Für das Meeting-Protokoll & die Sprecher-Korrektur — als Alternative/Fallback zu Groq
+                (großzügigeres Gratis-Kontingent). Kostenlosen Key holen auf{' '}
+                <a
+                  href="https://aistudio.google.com/apikey"
+                  className="text-primary underline"
+                  target="_blank"
+                  rel="noopener"
+                >
+                  aistudio.google.com
+                </a>
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Input
+                    type={showGeminiKey ? 'text' : 'password'}
+                    value={geminiKey}
+                    onChange={(e) => setGeminiKey(e.target.value)}
+                    placeholder="AIza..."
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowGeminiKey(!showGeminiKey)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    {showGeminiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <Button
+                  onClick={() => { if (geminiKey && !geminiKey.includes('•')) handleSave('geminiApiKey', geminiKey); }}
+                  disabled={isSaving}
+                >
+                  Speichern
+                </Button>
+              </div>
+
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1 block">LLM-Anbieter (Protokoll)</Label>
+                <div className="flex gap-2">
+                  {([
+                    ['auto', 'Automatisch'],
+                    ['groq', 'Nur Groq'],
+                    ['gemini', 'Nur Gemini'],
+                  ] as const).map(([val, label]) => (
+                    <Button
+                      key={val}
+                      variant={(settings?.llmProvider ?? 'auto') === val ? 'default' : 'outline'}
+                      className="flex-1"
+                      size="sm"
+                      onClick={() => handleSave('llmProvider', val)}
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  „Automatisch" nimmt Groq (schnell) und wechselt bei erschöpftem Tageslimit automatisch zu Gemini.
+                </p>
               </div>
             </CardContent>
           </Card>

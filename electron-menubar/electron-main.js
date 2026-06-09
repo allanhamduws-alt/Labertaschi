@@ -149,6 +149,11 @@ function getStore() {
         diarizationEnabled: false,
         // System-Audio (Gegenstelle eines Anrufs): 'auto' = automatisch erkennen (empfohlen).
         systemAudioMode: 'auto',
+        // LLM für Protokoll + Sprecher-Korrektur: Google Gemini als Alternative/Fallback zu Groq
+        // (großzügigeres Free-Tier). 'auto' = Groq zuerst, bei Limit automatisch Gemini.
+        geminiApiKey: '',
+        llmProvider: 'auto', // 'auto' | 'groq' | 'gemini'
+        geminiModel: 'gemini-2.0-flash',
       },
     });
   }
@@ -2175,12 +2180,16 @@ function setupIpcHandlers() {
       meetingHotkey: s.get('meetingHotkey', 'Command+Shift+X'),
       diarizationEnabled: s.get('diarizationEnabled', false),
       systemAudioMode: s.get('systemAudioMode', 'auto'),
+      geminiApiKey: s.get('geminiApiKey', ''),
+      llmProvider: s.get('llmProvider', 'auto'),
     };
   });
 
   ipcMain.handle('settings:set', (_event, settings) => {
     const s = getStore();
     if (settings.groqApiKey !== undefined) s.set('groqApiKey', settings.groqApiKey);
+    if (settings.geminiApiKey !== undefined) s.set('geminiApiKey', settings.geminiApiKey);
+    if (settings.llmProvider !== undefined) s.set('llmProvider', settings.llmProvider);
     if (settings.enablePolish !== undefined) s.set('enablePolish', settings.enablePolish);
     if (settings.language !== undefined) s.set('language', settings.language);
     if (settings.autopaste !== undefined) s.set('autopaste', settings.autopaste);

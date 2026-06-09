@@ -1,5 +1,6 @@
-// Meeting-Summary: Prompt-Erstellung, JSON-Parsing und Groq-Llama-Call. CommonJS.
+// Meeting-Summary: Prompt-Erstellung, JSON-Parsing und LLM-Call (Groq/Gemini). CommonJS.
 
+const { chatComplete } = require('./llm-client');
 const GROQ_CHAT_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 /**
@@ -58,50 +59,36 @@ function parseSummaryJson(raw) {
 }
 
 /**
- * Sendet das Transkript an Groq Llama und gibt ein MeetingSummary zurück.
+ * Sendet das Transkript an das LLM (Groq oder Gemini, mit Auto-Fallback) und gibt ein
+ * MeetingSummary zurück. Bei erschöpftem Groq-Tageslimit übernimmt automatisch Gemini (falls Key).
  * @param {string} transcriptText
- * @param {{ apiKey: string, model: string, language: string, fetchImpl?: Function }} opts
+ * @param {{ apiKey?:string, groqApiKey?:string, geminiApiKey?:string, llmProvider?:string,
+ *           model?:string, geminiModel?:string, language?:string, fetchImpl?:Function }} opts
  * @returns {Promise<object>} MeetingSummary
  */
-async function generateMeetingSummary(transcriptText, { apiKey, model, language, fetchImpl } = {}) {
-  const fetch = fetchImpl || globalThis.fetch;
+async function generateMeetingSummary(transcriptText, opts = {}) {
+  const { apiKey, groqApiKey, geminiApiKey, llmProvider, model, geminiModel, language, fetchImpl } = opts;
   const prompt = getMeetingSummaryPrompt(transcriptText, language || 'de');
 
-  const response = await fetch(GROQ_CHAT_URL, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: model || 'llama-3.3-70b-versatile',
-      response_format: { type: 'json_object' },
-      max_tokens: 2048,
-      messages: [
-        { role: 'system', content: 'Du bist ein präziser Meeting-Protokollant. Antworte immer mit einem validen JSON-Objekt.' },
-        { role: 'user', content: prompt },
-      ],
-    }),
+  // chatComplete wirft bei 429 (alle Anbieter erschöpft) einen Fehler mit code='rate_limit' —
+  // die UI zeigt dann eine verständliche Meldung statt still „kein Protokoll".
+  const { text, model: usedModel } = await chatComplete({
+    system: 'Du bist ein präziser Meeting-Protokollant. Antworte immer mit einem validen JSON-Objekt.',
+    user: prompt,
+    jsonMode: true,
+    maxTokens: 2048,
+    temperature: 0,
+    provider: llmProvider || 'auto',
+    groqApiKey: groqApiKey != null ? groqApiKey : apiKey, // Abwärtskompatibilität: apiKey = Groq-Key
+    groqModel: model || 'llama-3.3-70b-versatile',
+    geminiApiKey,
+    geminiModel,
+    fetchImpl,
   });
 
-  if (!response.ok) {
-    const errText = await response.text().catch(() => '');
-    // Tageslimit (429) klar markieren, damit die UI eine verständliche Meldung zeigen kann
-    // statt still „kein Protokoll".
-    if (response.status === 429) {
-      const e = new Error('RATE_LIMIT: Groq-Tageslimit erreicht');
-      e.code = 'rate_limit';
-      throw e;
-    }
-    throw new Error(`Groq Summary-Call fehlgeschlagen: ${response.status} ${errText}`);
-  }
-
-  const data = await response.json();
-  const content = data?.choices?.[0]?.message?.content || '{}';
-
-  const summary = parseSummaryJson(content);
+  const summary = parseSummaryJson(text || '{}');
   summary.generatedAt = new Date().toISOString();
-  summary.model = model || 'llama-3.3-70b-versatile';
+  summary.model = usedModel || model || 'llama-3.3-70b-versatile';
 
   return summary;
 }

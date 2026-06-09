@@ -207,7 +207,7 @@ export function Dashboard() {
         </nav>
 
         <div className="p-4 border-t text-xs text-muted-foreground text-center">
-          paply v{platform?.version ?? '1.12.1'}
+          paply v{platform?.version ?? '1.12.2'}
         </div>
       </aside>
 
@@ -1773,6 +1773,7 @@ function SettingsView({
   onSettingChange: (key: keyof SettingsType, value: boolean | string | number) => void;
 }) {
   const [groqKey, setGroqKey] = useState('');
+  const [geminiKey, setGeminiKey] = useState('');
   const [shortcutInput, setShortcutInput] = useState('');
   const [meetingHotkeyInput, setMeetingHotkeyInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -1782,6 +1783,7 @@ function SettingsView({
   useEffect(() => {
     if (settings) {
       setGroqKey(settings.groqApiKey ? '••••••••••••••••' : '');
+      setGeminiKey(settings.geminiApiKey ? '••••••••••••••••' : '');
       setShortcutInput(settings.shortcut || '');
       setMeetingHotkeyInput(settings.meetingHotkey || 'Command+Shift+X');
     }
@@ -1835,6 +1837,9 @@ function SettingsView({
     if (groqKey && !groqKey.includes('•')) {
       await onSettingChange('groqApiKey', groqKey);
     }
+    if (geminiKey && !geminiKey.includes('•')) {
+      await onSettingChange('geminiApiKey', geminiKey);
+    }
     if (shortcutInput && shortcutInput !== settings?.shortcut) {
       await onSettingChange('shortcut', shortcutInput);
     }
@@ -1866,6 +1871,36 @@ function SettingsView({
               onChange={(e) => setGroqKey(e.target.value)}
               placeholder="gsk_..."
             />
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground mb-2 block">
+              Google Gemini API Key (optional — Protokoll-Fallback, großzügigeres Gratis-Limit)
+            </Label>
+            <Input
+              type="password"
+              value={geminiKey}
+              onChange={(e) => setGeminiKey(e.target.value)}
+              placeholder="AIza... — Key auf aistudio.google.com/apikey"
+            />
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground mb-2 block">LLM-Anbieter (Protokoll)</Label>
+            <div className="flex gap-2">
+              {([['auto', 'Automatisch'], ['groq', 'Nur Groq'], ['gemini', 'Nur Gemini']] as const).map(([val, label]) => (
+                <Button
+                  key={val}
+                  size="sm"
+                  variant={(settings.llmProvider ?? 'auto') === val ? 'default' : 'outline'}
+                  className="flex-1"
+                  onClick={() => onSettingChange('llmProvider', val)}
+                >
+                  {label}
+                </Button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              „Automatisch": Groq zuerst, bei erschöpftem Tageslimit automatisch Gemini.
+            </p>
           </div>
         </CardContent>
       </Card>

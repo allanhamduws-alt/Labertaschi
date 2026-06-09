@@ -17,6 +17,9 @@ export interface Settings {
   // System-Audio (Gegenstelle eines Anrufs auf diesem Computer): 'auto' = automatisch erkennen
   // (empfohlen), 'always' = immer einbeziehen, 'never' = nie. Default 'auto'.
   systemAudioMode: 'auto' | 'always' | 'never';
+  // LLM für Protokoll + Sprecher-Korrektur. 'auto' = Groq, bei Limit Gemini-Fallback.
+  geminiApiKey: string;
+  llmProvider: 'auto' | 'groq' | 'gemini';
 }
 
 export interface HistoryItem {
