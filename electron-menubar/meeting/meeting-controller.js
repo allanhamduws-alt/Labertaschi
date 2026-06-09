@@ -105,6 +105,7 @@ function createMeetingController(deps) {
   let onTeeError = null;
   let onTeeLog = null;
   let onDetectorState = null;
+  let onDetectorError = null;
 
   // Wird der System-Kanal als „Gegenstelle" gewertet? Eine einzige Regel statt zweier Modi:
   // - Einstellung 'always'/'never' überschreibt.
@@ -238,8 +239,12 @@ function createMeetingController(deps) {
     if (callDetector && callDetector.isSupported) {
       callDetectorRan = true;
       onDetectorState = (a) => onCallState(a);
+      // Scheitert der Detektor (Binary fehlt/unsigniert/Crash), NICHT die System-Audio-Einbindung
+      // verlieren: callDetectorRan zurücknehmen → systemIsRemote('auto') fällt auf gotSystemPcm zurück.
+      onDetectorError = () => { callDetectorRan = false; };
       callDetector.on('call-state', onDetectorState);
-      try { callDetector.start({ excludePid }); } catch { /* Detektor optional — Fallback greift */ }
+      callDetector.on('error', onDetectorError);
+      try { callDetector.start({ excludePid }); } catch { callDetectorRan = false; }
     }
 
     overlayWin = getOverlayWindow ? getOverlayWindow() : null;
@@ -277,7 +282,7 @@ function createMeetingController(deps) {
       if (onTeePcm) audioTee.removeListener('pcm', onTeePcm);
       if (onTeeError) audioTee.removeListener('error', onTeeError);
       if (onTeeLog) audioTee.removeListener('log', onTeeLog);
-      if (callDetector) { try { callDetector.stop(); } catch { /* best effort */ } if (onDetectorState) callDetector.removeListener('call-state', onDetectorState); }
+      if (callDetector) { try { callDetector.stop(); } catch { /* best effort */ } if (onDetectorState) callDetector.removeListener('call-state', onDetectorState); if (onDetectorError) callDetector.removeListener('error', onDetectorError); }
 
       await queue.idle();
 

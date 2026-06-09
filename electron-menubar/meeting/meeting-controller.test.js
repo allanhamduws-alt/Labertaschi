@@ -237,6 +237,27 @@ describe('MeetingController (Integration mit Fakes)', () => {
     expect(segs.some((s) => s.channel === 'system')).toBe(false);
   });
 
+  it('Detektor-Fehler (unsigniert/fehlt): Fallback auf Signal-Heuristik (System wird einbezogen)', async () => {
+    const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'paply-ctlfail-'));
+    const store = fakeStore(); // auto
+    const meetingStore = createMeetingStore({ baseDir, store });
+    const tee = new FakeTee();
+    const detector = new EventEmitter(); detector.isSupported = true;
+    detector.start = () => {}; detector.stop = () => {};
+    const ctl = createMeetingController({
+      store, meetingStore, audioTee: tee, callDetector: detector,
+      getOverlayWindow: () => null, getMainWindow: () => null,
+      fetchImpl: fakeFetch, windowSeconds: 1, sampleRate: 100, now: () => 1700000000000,
+    });
+    const { id } = ctl.start();
+    detector.emit('error', new Error('binary nicht ausführbar')); // Detektor kaputt
+    tee.emit('pcm', signal()); // System hat echtes Signal → Fallback zählt es als Gegenstelle
+    ctl.onMicPcm(signal());
+    await ctl.stop();
+    const segs = meetingStore.get(id).transcript.segments;
+    expect(segs.some((s) => s.channel === 'system')).toBe(true);
+  });
+
   it('Stille-Gate: stille Chunks werden NICHT transkribiert (keine Halluzination)', async () => {
     const baseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'paply-ctl7-'));
     const store = fakeStore();
